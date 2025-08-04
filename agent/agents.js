@@ -1,6 +1,7 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { Octokit } from "@octokit/rest";
 import { WebClient } from "@slack/web-api";
+import { StringOutputParser } from "@langchain/core/output_parsers";
 
 export const generateIdea = async (state) => {
     try {
@@ -169,7 +170,7 @@ export const developCode = async (state) => {
                 ...state,
                 commits: [{
                     message: "Mock commit: Placeholder code",
-                    files: [{ path: "src/mock.js", content: "// Placeholder code" }]
+                    files: [{ path: "server/mock.js", content: "// Placeholder code" }]
                 }]
             };
         }
@@ -184,7 +185,7 @@ export const developCode = async (state) => {
                 ...state,
                 commits: [{
                     message: "Mock commit: Invalid input",
-                    files: [{ path: "src/error.js", content: "// Invalid projectSpec or plan" }]
+                    files: [{ path: "server/error.js", content: "// Invalid projectSpec or plan" }]
                 }]
             };
         }
@@ -195,7 +196,7 @@ export const developCode = async (state) => {
                 ...state,
                 commits: [{
                     message: "Mock commit: No repository",
-                    files: [{ path: "src/error.js", content: "// No repository available" }]
+                    files: [{ path: "server/error.js", content: "// No repository available" }]
                 }]
             };
         }
@@ -208,6 +209,7 @@ export const developCode = async (state) => {
             model: "gemini-1.5-flash",
             apiKey: process.env.GOOGLE_API_KEY
         });
+        const parser = new StringOutputParser();
 
         const commits = [];
         for (const task of plan.tasks) {
@@ -215,23 +217,51 @@ export const developCode = async (state) => {
             - Task: ${task.title}
             - Description: ${task.description}
             - File Path: ${task.filePath}
-            Ensure the code follows best practices, is functional, and matches the project's tech stack. Return only the code content, no explanations or markdown.`;
+            Ensure the code follows best practices, is functional, and matches the project's tech stack. Return only the code content, no explanations, markdown, or code block markers (e.g., no \`\`\`html, \`\`\`css, \`\`\`javascript).`;
 
             const response = await model.invoke([["human", prompt]]);
-            const codeContent = response.content.trim();
+            let codeContent = await parser.parse(response.content);
+
+            // Custom cleaning to remove any remaining code block markers
+            codeContent = codeContent
+                .replace(/```(?:html|css|javascript|json)?\s*/g, "")
+                .replace(/```/g, "")
+                .trim();
+
+            // Ensure file path is within server/ directory for backend files
+            const fullPath = `server/${task.filePath.replace(/^server\//, '')}`.replace(/\/+/g, '/');
+
+            // Check if the file already exists to get its sha
+            let sha;
+            try {
+                const { data } = await github.rest.repos.getContent({
+                    owner: owner,
+                    repo: state.repo.name,
+                    path: fullPath,
+                    branch: "main"
+                });
+                sha = data.sha; // File exists, retrieve its sha
+            } catch (error) {
+                if (error.status === 404) {
+                    sha = undefined; // File doesn't exist, proceed to create it
+                } else {
+                    throw error; // Other errors should be propagated
+                }
+            }
 
             await github.rest.repos.createOrUpdateFileContents({
                 owner: owner,
                 repo: state.repo.name,
-                path: task.filePath,
+                path: fullPath,
                 message: `Add ${task.title} implementation`,
                 content: Buffer.from(codeContent).toString("base64"),
-                branch: "main"
+                branch: "main",
+                sha: sha // Include sha if file exists, undefined if creating new
             });
 
             commits.push({
                 message: `Add ${task.title} implementation`,
-                files: [{ path: task.filePath, content: codeContent }]
+                files: [{ path: fullPath, content: codeContent }]
             });
         }
 
@@ -242,7 +272,7 @@ export const developCode = async (state) => {
             ...state,
             commits: [{
                 message: "Mock commit: Error in code generation",
-                files: [{ path: "src/error.js", content: "// Error generating code" }]
+                files: [{ path: "server/error.js", content: "// Error generating code" }]
             }]
         };
     }
