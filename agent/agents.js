@@ -81,7 +81,7 @@ export const planProject = async (state) => {
         });
 
         const prompt = `You are a project planner. Create a detailed implementation plan for the project: ${state.projectSpec}.
-                        Return JSON:
+                        STRICTLY return only valid JSON, no markdown, no explanations.
                         {
                           "tasks": [{"title": "Task Name", "description": "Task Description", "filePath": "path/to/file"}],
                           "timeline": "Estimated timeline",
@@ -229,7 +229,7 @@ export const developCode = async (state) => {
                 .trim();
 
             // Ensure file path is within server/ directory for backend files
-            const fullPath = `server/${task.filePath.replace(/^server\//, '')}`.replace(/\/+/g, '/');
+            const fullPath = task.filePath.replace(/^\/+/, '').replace(/\/+/g, '/');
 
             // Check if the file already exists to get its sha
             let sha;
