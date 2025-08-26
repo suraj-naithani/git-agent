@@ -4,6 +4,7 @@ import { developCode, generateIdea, manageRepository, planProject } from "./agen
 
 // Define the state schema for the graph
 const stateSchema = z.object({
+    projectName: z.string().nullable().optional().describe("Specific project name/idea provided by user (can be null for random project)"),
     complexity: z.string().describe("Complexity level of the project (e.g., beginner, intermediate, advanced)"),
     techConstraints: z.array(z.string()).describe("Technological constraints or preferences for the project"),
     projectSpec: z.string().nullable().describe("Generated project specification in JSON format"),
@@ -40,6 +41,7 @@ class AgentOrchestrator {
     async runCycle(input) {
         try {
             const initialState = {
+                projectName: input.projectName ?? null, // Use nullish coalescing to allow null values
                 complexity: input.complexity || "beginner",
                 techConstraints: input.techConstraints || ["Node.js"],
                 projectSpec: null,

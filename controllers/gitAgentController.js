@@ -2,6 +2,7 @@ import { z } from "zod";
 import AgentOrchestrator from "../agent/workflow.js";
 
 const inputSchema = z.object({
+    projectName: z.string().nullable().optional().describe("Specific project name/idea to create (can be null for random project)"),
     complexity: z.enum(['beginner', 'intermediate', 'advanced']).default('beginner'),
     techConstraints: z.array(z.string()).default(['Node.js', 'MongoDB'])
 });
@@ -18,6 +19,7 @@ const gitAgent = async (req, res) => {
         const orchestrator = new AgentOrchestrator(config);
 
         const result = await orchestrator.runCycle({
+            projectName: input.projectName,
             complexity: input.complexity,
             techConstraints: input.techConstraints
         });
