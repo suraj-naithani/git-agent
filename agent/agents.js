@@ -1,30 +1,12 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { Octokit } from "@octokit/rest";
 import { WebClient } from "@slack/web-api";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import { chatLLM } from "../utils/model.js";
 
 export const generateIdea = async (state) => {
     try {
-        if (!process.env.GOOGLE_API_KEY) {
-            console.error("Error: GOOGLE_API_KEY not found");
-            return {
-                ...state,
-                projectSpec: JSON.stringify({
-                    title: "Mock Project (No API Key)",
-                    type: "Web App",
-                    complexity: state.complexity,
-                    techStack: state.techConstraints,
-                    features: ["Feature 1", "Feature 2"],
-                    timeline: "2 weeks"
-                })
-            };
-        }
+        const model = chatLLM({ json: true });
 
-        const model = new ChatGoogleGenerativeAI({
-            model: "gemini-1.5-flash",
-            apiKey: process.env.GOOGLE_API_KEY,
-            responseFormat: "json"
-        });
         const prompt = `You are an expert software architect. Generate one creative software project idea in JSON format.
                         Constraints:
                         - Complexity: ${state.complexity}
@@ -60,25 +42,7 @@ export const generateIdea = async (state) => {
 
 export const planProject = async (state) => {
     try {
-        if (!process.env.GOOGLE_API_KEY) {
-            console.error("Error: GOOGLE_API_KEY not found");
-            return {
-                ...state,
-                plan: JSON.stringify({
-                    tasks: [
-                        { title: "Mock Task", description: "Placeholder task", filePath: "src/mock.js" }
-                    ],
-                    timeline: "1 week",
-                    dependencies: []
-                })
-            };
-        }
-
-        const model = new ChatGoogleGenerativeAI({
-            model: "gemini-1.5-flash",
-            apiKey: process.env.GOOGLE_API_KEY,
-            responseFormat: "json"
-        });
+        const model = chatLLM({ json: true });
 
         const prompt = `You are a project planner. Create a detailed implementation plan for the project: ${state.projectSpec}.
                         STRICTLY return only valid JSON, no markdown, no explanations.
@@ -129,30 +93,61 @@ export const manageRepository = async (state) => {
             .replace(/\s+/g, '-') // Replace spaces with hyphens
             .substring(0, 100); // GitHub repo name limit
 
-        const repoDescription = `A ${projectSpec.complexity.toLowerCase()} ${projectSpec.type.toLowerCase()} project: ${projectSpec.title}. Built with ${projectSpec.techStack.join(', ')}.`;
+        let repoDescription = `A ${projectSpec.complexity.toLowerCase()} ${projectSpec.type.toLowerCase()} project: ${projectSpec.title}. Built with ${projectSpec.techStack.join(', ')}.`;
+        if (repoDescription.length > 350) {
+            repoDescription = repoDescription.substring(0, 347) + '...';
+        }
 
         // Get authenticated user's username
         const { data: user } = await github.users.getAuthenticated();
         const owner = user.login;
 
-        const repo = await github.repos.createForAuthenticatedUser({
-            name: `${repoName}`,
-            description: repoDescription,
-            private: false
-        });
+        let repo;
+        try {
+            const { data: existingRepo } = await github.repos.get({
+                owner,
+                repo: repoName
+            });
+            console.log(`Repository ${repoName} already exists. Using existing repository.`);
+            repo = existingRepo;
+        } catch (error) {
+            if (error.status === 404) {
+                repo = (await github.repos.createForAuthenticatedUser({
+                    name: repoName,
+                    description: repoDescription,
+                    private: false
+                })).data;
+            } else {
+                throw error;
+            }
+        }
 
-        const readmeContent = `# ${projectSpec.title}\n\n${repoDescription}\n\n## Features\n${projectSpec.features.map(f => `- ${f}`).join('\n')}\n\n## Tech Stack\n${projectSpec.techStack.join(', ')}\n\n## Timeline\n${projectSpec.timeline}\n\n## Getting Started\nClone the repository and install dependencies:\n\`\`\`bash\ngit clone ${repo.data.html_url}\ncd ${repo.data.name}\nnpm install\n\`\`\``;
+        const readmeContent = `# ${projectSpec.title}\n\n${repoDescription}\n\n## Features\n${projectSpec.features.map(f => `- ${f}`).join('\n')}\n\n## Tech Stack\n${projectSpec.techStack.join(', ')}\n\n## Timeline\n${projectSpec.timeline}\n\n## Getting Started\nClone the repository and install dependencies:\n\`\`\`bash\ngit clone ${repo.html_url}\ncd ${repo.name}\nnpm install\n\`\`\``;
+
+        // Update or create README
+        let readmeSha;
+        try {
+            const { data } = await github.rest.repos.getContent({
+                owner,
+                repo: repoName,
+                path: "README.md"
+            });
+            readmeSha = data.sha;
+        } catch (err) {
+            if (err.status !== 404) throw err;
+        }
 
         await github.rest.repos.createOrUpdateFileContents({
-            owner: owner,
-            repo: repo.data.name,
+            owner,
+            repo: repoName,
             path: "README.md",
-            message: "Initial commit: Add README",
+            message: readmeSha ? "Update README" : "Initial commit: Add README",
             content: Buffer.from(readmeContent).toString("base64"),
-            branch: "main"
+            branch: "main",
+            sha: readmeSha
         });
 
-        return { ...state, repo: { name: repo.data.name, url: repo.data.html_url } };
+        return { ...state, repo: { name: repo.name, url: repo.html_url } };
     } catch (error) {
         console.error("Error in manageRepository:", error);
         return {
@@ -164,16 +159,8 @@ export const manageRepository = async (state) => {
 
 export const developCode = async (state) => {
     try {
-        if (!process.env.GOOGLE_API_KEY || !process.env.GITHUB_TOKEN) {
-            console.error("Error: GOOGLE_API_KEY or GITHUB_TOKEN not found");
-            return {
-                ...state,
-                commits: [{
-                    message: "Mock commit: Placeholder code",
-                    files: [{ path: "server/mock.js", content: "// Placeholder code" }]
-                }]
-            };
-        }
+        const model = chatLLM();
+        const parser = new StringOutputParser();
 
         let projectSpec, plan;
         try {
@@ -190,7 +177,7 @@ export const developCode = async (state) => {
             };
         }
 
-        if (!state.repo || !state.repo.name || !state.repo.url) {
+        if (!state.repo || !state.repo.name || !state.repo.url || state.repo.name === "mock-repo") {
             console.error("Error: No valid repository found");
             return {
                 ...state,
@@ -204,12 +191,6 @@ export const developCode = async (state) => {
         const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
         const { data: user } = await github.users.getAuthenticated();
         const owner = user.login;
-
-        const model = new ChatGoogleGenerativeAI({
-            model: "gemini-1.5-flash",
-            apiKey: process.env.GOOGLE_API_KEY
-        });
-        const parser = new StringOutputParser();
 
         const commits = [];
         for (const task of plan.tasks) {
