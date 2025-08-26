@@ -24,7 +24,7 @@ export function chatLLM({ json = false } = {}) {
 
         case "gemini":
             return new ChatGoogleGenerativeAI({
-                model: "gemini-1.5-pro",
+                model: "gemini-1.5-flash",
                 temperature: TEMPERATURE,
                 apiKey: process.env.GOOGLE_API_KEY,
                 generationConfig: json ? { response_mime_type: "application/json" } : undefined
