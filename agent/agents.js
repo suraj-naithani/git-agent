@@ -31,33 +31,32 @@ export const generateIdea = async (state) => {
 
         // Enhanced prompt with better project variety and constraints
         const prompt = `You are an expert software architect specializing in diverse project creation. Generate one creative software project idea in JSON format.
+                        ${state.projectName ? `SPECIFIC PROJECT REQUEST: The user wants to create a project called "${state.projectName}". Please create a project specification that matches this name/idea while ensuring it's feasible and implementable.` : `Constraints:
+                        - Complexity: ${state.complexity}
+                        - Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"}
+                        - Project Variety: Focus on creating unique, innovative concepts`}
 
-${state.projectName ? `SPECIFIC PROJECT REQUEST: The user wants to create a project called "${state.projectName}". Please create a project specification that matches this name/idea while ensuring it's feasible and implementable.` : `Constraints:
-- Complexity: ${state.complexity}
-- Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"}
-- Project Variety: Focus on creating unique, innovative concepts`}
+                        Requirements:
+                        - ${state.projectName ? `Create a project that matches the name "${state.projectName}"` : 'Ensure the project is feasible and implementable'}
+                        - ${state.projectName ? 'Make the project name match exactly what the user requested' : 'Select appropriate tech stack for the complexity level'}
+                        - Create engaging features that demonstrate technical skills
+                        - Provide realistic timeline estimates
+                        - Choose modern, relevant technologies that work well together
+                        - Consider the project's specific needs and requirements
 
-Requirements:
-- ${state.projectName ? `Create a project that matches the name "${state.projectName}"` : 'Ensure the project is feasible and implementable'}
-- ${state.projectName ? 'Make the project name match exactly what the user requested' : 'Select appropriate tech stack for the complexity level'}
-- Create engaging features that demonstrate technical skills
-- Provide realistic timeline estimates
-- Choose modern, relevant technologies that work well together
-- Consider the project's specific needs and requirements
+                        ${state.projectName ? `IMPORTANT: The project title MUST be exactly "${state.projectName}" as requested by the user.` : ''}
 
-${state.projectName ? `IMPORTANT: The project title MUST be exactly "${state.projectName}" as requested by the user.` : ''}
-
-Return ONLY valid JSON in this exact format:
-{
-  "title": "${state.projectName || 'Project Name'}",
-  "type": "Web App | CLI Tool | API | Library | Mobile App | Data Processing | Automation Script",
-  "complexity": "Beginner | Intermediate | Advanced",
-  "techStack": ["technology1", "technology2"],
-  "features": ["feature1", "feature2", "feature3"],
-  "timeline": "estimated duration",
-  "description": "Brief project description",
-  "targetAudience": "Who would use this project"
-}`;
+                        Return ONLY valid JSON in this exact format:
+                        {
+                          "title": "${state.projectName || 'Project Name'}",
+                          "type": "Web App | CLI Tool | API | Library | Mobile App | Data Processing | Automation Script",
+                          "complexity": "Beginner | Intermediate | Advanced",
+                          "techStack": ["technology1", "technology2"],
+                          "features": ["feature1", "feature2", "feature3"],
+                          "timeline": "estimated duration",
+                          "description": "Brief project description",
+                          "targetAudience": "Who would use this project"
+                        }`;
 
         const response = await model.invoke([["human", prompt]]);
         const cleaned = response.content.replace(/```json|```/g, "").trim();
@@ -109,33 +108,31 @@ export const planProject = async (state) => {
 
         // Enhanced planning prompt with better task breakdown
         const prompt = `You are an expert project planner and software architect. Create a detailed implementation plan for the following project:
+                        Project: ${JSON.stringify(projectSpec, null, 2)}
 
-Project: ${JSON.stringify(projectSpec, null, 2)}
+                        Requirements:
+                        - Break down the project into logical, implementable tasks
+                        - Each task should be atomic and commit-worthy
+                        - Consider dependencies between tasks
+                        - Provide realistic timeline estimates
+                        - Include file paths that make sense for the project structure
+                        - Ensure tasks align with the project's complexity level
 
-Requirements:
-- Break down the project into logical, implementable tasks
-- Each task should be atomic and commit-worthy
-- Consider dependencies between tasks
-- Provide realistic timeline estimates
-- Include file paths that make sense for the project structure
-- Ensure tasks align with the project's complexity level
-
-Return ONLY valid JSON in this exact format:
-{
-  "tasks": [
-    {
-      "title": "Task Name",
-      "description": "Detailed task description",
-      "filePath": "path/to/file",
-      "estimatedTime": "time estimate",
-      "priority": "high|medium|low"
-    }
-  ],
-                          "timeline": "Estimated timeline",
-  "dependencies": ["dependency1", "dependency2"],
-  "milestones": ["milestone1", "milestone2"],
-  "riskFactors": ["risk1", "risk2"]
-                        }`;
+                        Return ONLY valid JSON in this exact format:
+                        {
+                          "tasks": [
+                            {
+                              "title": "Task Name",
+                              "description": "Detailed task description",
+                              "filePath": "path/to/file",
+                              "estimatedTime": "time estimate",
+                              "priority": "high|medium|low"
+                            }
+                          ],
+                                                  "timeline": "Estimated timeline",
+                          "dependencies": ["dependency1", "dependency2"],
+                          "milestones": ["milestone1", "milestone2"],
+                          "riskFactors": ["risk1", "risk2"]}`;
 
         const response = await model.invoke([["human", prompt]]);
         const cleaned = response.content.replace(/```json|```/g, "").trim();
@@ -294,45 +291,44 @@ const generateReadmeContent = (projectSpec, repo) => {
     const targetAudience = projectSpec.targetAudience || 'Developers';
 
     return `# ${projectSpec.title}
+                ${description ? `${description}\n\n` : ''}## 🎯 Project Overview
+                This is a ${projectSpec.complexity?.toLowerCase() || 'intermediate'} ${projectSpec.type?.toLowerCase() || 'software'} project designed for ${targetAudience}.
 
-${description ? `${description}\n\n` : ''}## 🎯 Project Overview
-This is a ${projectSpec.complexity?.toLowerCase() || 'intermediate'} ${projectSpec.type?.toLowerCase() || 'software'} project designed for ${targetAudience}.
+                ## ✨ Features
+                ${features.map(f => `- ${f}`).join('\n')}
 
-## ✨ Features
-${features.map(f => `- ${f}`).join('\n')}
+                ## 🛠️ Tech Stack
+                ${techStack.join(', ')}
 
-## 🛠️ Tech Stack
-${techStack.join(', ')}
+                ## 📅 Timeline
+                ${timeline}
 
-## 📅 Timeline
-${timeline}
+                ## 🚀 Getting Started
 
-## 🚀 Getting Started
+                ### Prerequisites
+                - Node.js (if applicable)
+                - Required dependencies
 
-### Prerequisites
-- Node.js (if applicable)
-- Required dependencies
+                ### Installation
+                \`\`\`bash
+                git clone ${repo.html_url}
+                cd ${repo.name}
+                npm install  # or appropriate package manager command
+                \`\`\`
 
-### Installation
-\`\`\`bash
-git clone ${repo.html_url}
-cd ${repo.name}
-npm install  # or appropriate package manager command
-\`\`\`
+                ### Usage
+                \`\`\`bash
+                npm start  # or appropriate start command
+                \`\`\`
 
-### Usage
-\`\`\`bash
-npm start  # or appropriate start command
-\`\`\`
+                ## 📝 License
+                This project is licensed under the MIT License.
 
-## 📝 License
-This project is licensed under the MIT License.
+                ## 🤝 Contributing
+                Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 🤝 Contributing
-Contributions are welcome! Please feel free to submit a Pull Request.
-
----
-*Generated by AI Git Agent Team*`;
+                ---
+                *Generated by AI Git Agent Team*`;
 };
 
 // Helper function to validate and normalize file paths
@@ -352,8 +348,6 @@ const normalizeFilePath = (filePath, taskTitle) => {
         } else if (normalizedPath === 'backend') {
             normalizedPath = 'backend/package.json';
         } else {
-            // For other directories, create an index file
-            // Remove trailing slash before adding index.js
             normalizedPath = normalizedPath.replace(/\/$/, '') + '/index.js';
         }
     }
@@ -426,27 +420,26 @@ export const developCode = async (state) => {
 
                 // Enhanced code generation prompt
                 const prompt = `You are an expert developer specializing in ${projectSpec.type} projects. Generate production-ready code for the following task:
+                                Project Context:
+                                - Type: ${projectSpec.type}
+                                - Tech Stack: ${projectSpec.techStack.join(", ")}
+                                - Complexity: ${projectSpec.complexity}
 
-Project Context:
-- Type: ${projectSpec.type}
-- Tech Stack: ${projectSpec.techStack.join(", ")}
-- Complexity: ${projectSpec.complexity}
+                                Task Details:
+                                - Title: ${task.title}
+                                            - Description: ${task.description}
+                                            - File Path: ${task.filePath}
+                                - Priority: ${task.priority || 'medium'}
 
-Task Details:
-- Title: ${task.title}
-            - Description: ${task.description}
-            - File Path: ${task.filePath}
-- Priority: ${task.priority || 'medium'}
+                                Requirements:
+                                - Write clean, well-structured code following best practices
+                                - Include appropriate error handling and validation
+                                - Follow the project's tech stack and patterns
+                                - Ensure the code is functional and implementable
+                                - Add helpful comments for complex logic
+                                - Consider the project's complexity level
 
-Requirements:
-- Write clean, well-structured code following best practices
-- Include appropriate error handling and validation
-- Follow the project's tech stack and patterns
-- Ensure the code is functional and implementable
-- Add helpful comments for complex logic
-- Consider the project's complexity level
-
-Return ONLY the code content - no explanations, markdown, or code block markers.`;
+                                Return ONLY the code content - no explanations, markdown, or code block markers.`;
 
                 const response = await model.invoke([["human", prompt]]);
                 let codeContent = await parser.parse(response.content);
@@ -634,20 +627,19 @@ export const notifyStatus = async (state) => {
         const repoUrl = state.repo?.url || '#';
 
         const message = `🚀 *Project Update: ${repoName}*
-        
-📊 *Status Summary:*
-• Commits: ${commitCount}
-• Project Type: ${projectSpec.type || 'Unknown'}
-• Complexity: ${projectSpec.complexity || 'Unknown'}
-• Status: ${commitCount > 0 ? 'In Progress' : 'Initialized'}
+                            📊 *Status Summary:*
+                            • Commits: ${commitCount}
+                            • Project Type: ${projectSpec.type || 'Unknown'}
+                            • Complexity: ${projectSpec.complexity || 'Unknown'}
+                            • Status: ${commitCount > 0 ? 'In Progress' : 'Initialized'}
 
-🔗 *Repository:* ${repoUrl}
+                            🔗 *Repository:* ${repoUrl}
 
-${commitCount > 0 ? `📝 *Recent Commits:*
-${state.commits.slice(-3).map(commit => `• ${commit.message}`).join('\n')}` : ''}
+                            ${commitCount > 0 ? `📝 *Recent Commits:*
+                            ${state.commits.slice(-3).map(commit => `• ${commit.message}`).join('\n')}` : ''}
 
----
-*Generated by AI Git Agent Team*`;
+                            ---
+                            *Generated by AI Git Agent Team*`;
 
         await slack.chat.postMessage({
             channel: process.env.SLACK_CHANNEL || '#general',
@@ -760,50 +752,49 @@ const generateEnhancedDocumentation = (projectSpec, repo) => {
     const targetAudience = projectSpec.targetAudience || 'Developers';
 
     return `# ${projectSpec.title}
+            ${description ? `${description}\n\n` : ''}## 🎯 Project Overview
+            This is a ${projectSpec.complexity?.toLowerCase() || 'intermediate'} ${projectSpec.type?.toLowerCase() || 'software'} project designed for ${targetAudience}.
 
-${description ? `${description}\n\n` : ''}## 🎯 Project Overview
-This is a ${projectSpec.complexity?.toLowerCase() || 'intermediate'} ${projectSpec.type?.toLowerCase() || 'software'} project designed for ${targetAudience}.
+            ## ✨ Features
+            ${features.map(f => `- ${f}`).join('\n')}
 
-## ✨ Features
-${features.map(f => `- ${f}`).join('\n')}
+            ## 🛠️ Tech Stack
+            ${techStack.join(', ')}
 
-## 🛠️ Tech Stack
-${techStack.join(', ')}
+            ## 📅 Timeline
+            ${timeline}
 
-## 📅 Timeline
-${timeline}
+            ## 🚀 Getting Started
 
-## 🚀 Getting Started
+            ### Prerequisites
+            - Node.js (if applicable)
+            - Required dependencies
 
-### Prerequisites
-- Node.js (if applicable)
-- Required dependencies
+            ### Installation
+            \`\`\`bash
+            git clone ${repo.html_url}
+            cd ${repo.name}
+            npm install  # or appropriate package manager command
+            \`\`\`
 
-### Installation
-\`\`\`bash
-git clone ${repo.html_url}
-cd ${repo.name}
-npm install  # or appropriate package manager command
-\`\`\`
+            ### Usage
+            \`\`\`bash
+            npm start  # or appropriate start command
+            \`\`\`
 
-### Usage
-\`\`\`bash
-npm start  # or appropriate start command
-\`\`\`
+            ## 📝 License
+            This project is licensed under the MIT License.
 
-## 📝 License
-This project is licensed under the MIT License.
+            ## 🤝 Contributing
+            Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 🤝 Contributing
-Contributions are welcome! Please feel free to submit a Pull Request.
+            ## 📚 Additional Resources
+            - Project Repository: ${repo.url}
+            - Issue Tracker: ${repo.url}/issues
+            - Pull Requests: ${repo.url}/pulls
 
-## 📚 Additional Resources
-- Project Repository: ${repo.url}
-- Issue Tracker: ${repo.url}/issues
-- Pull Requests: ${repo.url}/pulls
-
----
-*Generated by AI Git Agent Team*`;
+            ---
+            *Generated by AI Git Agent Team*`;
 };
 
 export const optimizeLearning = async (state) => {

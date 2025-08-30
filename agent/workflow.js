@@ -3,6 +3,7 @@ import { z } from "zod";
 import { generateIdea, manageRepository, planProject } from "./agents.js";
 import { developNextTask } from "./developmentAgent.js";
 import memoryService from "../services/memoryService.js";
+import notificationService from "../services/notificationService.js";
 
 // Define the state schema for the graph
 const stateSchema = z.object({
@@ -81,6 +82,18 @@ class AgentOrchestrator {
                 } catch (error) {
                     console.error("Error saving repository info to memory:", error);
                 }
+            }
+
+            // Send project start notification
+            try {
+                await notificationService.sendProjectStartNotification({
+                    projectName: input.projectName || "AI Generated Project",
+                    complexity: input.complexity || "beginner",
+                    techStack: input.techConstraints || ["Node.js"],
+                    repo: result.repo
+                });
+            } catch (notifyError) {
+                console.warn("⚠️ Failed to send project start notification:", notifyError.message);
             }
 
             // Mark initialization as complete

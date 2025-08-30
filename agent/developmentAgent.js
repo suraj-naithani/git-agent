@@ -2,6 +2,7 @@ import { Octokit } from "@octokit/rest";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { chatLLM } from "../utils/model.js";
 import memoryService from "../services/memoryService.js";
+import notificationService from "../services/notificationService.js";
 
 // Enhanced error logging utility
 const logError = (agentName, error, context = {}) => {
@@ -271,6 +272,18 @@ The code must be functional and immediately runnable.`;
             });
 
             console.log(`✅ Successfully committed: ${fullPath}`);
+
+            // Send Slack notification for successful commit
+            try {
+                await notificationService.sendCommitNotification({
+                    message: commitMessage,
+                    files: [{ path: fullPath, content: codeContent }],
+                    repo: state.repo,
+                    task: currentTask.title
+                });
+            } catch (notifyError) {
+                console.warn("⚠️ Failed to send Slack notification:", notifyError.message);
+            }
         } catch (commitError) {
             console.error(`❌ GitHub commit failed:`, commitError);
             console.error(`❌ Error details:`, {
@@ -279,6 +292,18 @@ The code must be functional and immediately runnable.`;
                 path: fullPath,
                 repo: state.repo.name
             });
+
+            // Send error notification
+            try {
+                await notificationService.sendErrorNotification({
+                    error: commitError,
+                    context: `GitHub commit failed for ${fullPath}`,
+                    repo: state.repo
+                });
+            } catch (notifyError) {
+                console.warn("⚠️ Failed to send error notification:", notifyError.message);
+            }
+
             throw new Error(`GitHub commit failed: ${commitError.message}`);
         }
 
@@ -297,6 +322,17 @@ The code must be functional and immediately runnable.`;
         if (updatedRemainingTasks.length === 0) {
             console.log("🎉 All tasks completed! Project finished.");
             // Note: Project completion is now handled in memoryService.updateRemainingTasks()
+        }
+
+        // Send task completion notification
+        try {
+            await notificationService.sendTaskCompletionNotification({
+                taskTitle: currentTask.title,
+                remainingTasks: updatedRemainingTasks.length,
+                repo: state.repo
+            });
+        } catch (notifyError) {
+            console.warn("⚠️ Failed to send task completion notification:", notifyError.message);
         }
 
         return {
