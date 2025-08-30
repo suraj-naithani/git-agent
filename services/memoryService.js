@@ -67,18 +67,18 @@ class MemoryService {
         console.log("✅ Project initialization status saved:", status);
     }
 
-        // Save project completion status
+    // Save project completion status
     async saveProjectCompletion() {
         // Update local state
         this.projectState.isCompleted = true;
         this.projectState.lastUpdated = new Date().toISOString();
-        
+
         // Also save to LangChain memory for compatibility
         await this.saveContext(
             { project: "status" },
             { status: "complete", completedAt: new Date().toISOString() }
         );
-        
+
         console.log("✅ Project completion status saved");
     }
 
@@ -124,20 +124,56 @@ class MemoryService {
         console.log("✅ Project plan saved with", this.projectState.remainingTasks.length, "tasks");
     }
 
-        // Update remaining tasks (remove completed task)
+    // Save repository information
+    async saveRepositoryInfo(repo) {
+        try {
+            await this.saveContext(
+                { action: "save_repository" },
+                { repo: repo, timestamp: new Date().toISOString() }
+            );
+            console.log("✅ Repository information saved:", repo.name);
+        } catch (error) {
+            console.error("❌ Error saving repository info:", error);
+        }
+    }
+
+    // Get repository information from memory
+    async getRepositoryInfo() {
+        try {
+            const memory = await this.loadMemoryVariables();
+            for (const step of memory.past_steps || []) {
+                const stepContent = step.content || '';
+                if (stepContent.includes("repo") && stepContent.includes("name")) {
+                    try {
+                        const parsed = JSON.parse(stepContent);
+                        if (parsed.repo && parsed.repo.name && parsed.repo.url) {
+                            return parsed.repo;
+                        }
+                    } catch (parseError) {
+                        // Continue to next step
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Error parsing repository from memory:", error);
+        }
+        return null;
+    }
+
+    // Update remaining tasks (remove completed task)
     async updateRemainingTasks(updatedTasks) {
         // Update local state
         this.projectState.remainingTasks = updatedTasks;
         this.projectState.lastUpdated = new Date().toISOString();
-        
+
         // Also save to LangChain memory for compatibility
         await this.saveContext(
             { remainingTasks: "update" },
             { remainingTasks: updatedTasks }
         );
-        
+
         console.log("✅ Remaining tasks updated:", updatedTasks.length, "tasks left");
-        
+
         // Only mark project as completed if there are no more tasks AND we've checked the original plan
         if (updatedTasks.length === 0) {
             console.log("🔄 No remaining tasks - checking if project is truly completed...");
@@ -178,13 +214,13 @@ class MemoryService {
             try {
                 const stepContent = step.content || '';
                 // Only check for project-level completion, not task completion
-                return stepContent.includes('"status":"complete"') || 
-                       stepContent.includes('"project":"status"');
+                return stepContent.includes('"status":"complete"') ||
+                    stepContent.includes('"project":"status"');
             } catch (error) {
                 return false;
             }
         }) || false;
-        
+
         console.log(`🔍 Project completion check: Memory shows ${hasCompletion ? 'completed' : 'not completed'}`);
         return hasCompletion;
     }
@@ -267,11 +303,18 @@ class MemoryService {
     // Clear memory (useful for testing or resetting)
     async clearMemory() {
         try {
+            // Create completely new memory instance
             this.memory = new BufferMemory({
                 memoryKey: "past_steps",
                 returnMessages: true,
             });
-            // Reset local state
+
+            // Reset conversation chain
+            this.conversationChain = new ConversationChain({
+                memory: this.memory,
+            });
+
+            // Reset local state completely
             this.projectState = {
                 isInitialized: false,
                 isCompleted: false,
@@ -279,9 +322,28 @@ class MemoryService {
                 projectSpec: null,
                 lastUpdated: null
             };
-            console.log("🧹 Memory and local state cleared");
+
+            // Clear any stored repository information
+            await this.clearRepositoryInfo();
+
+            console.log("🧹 Memory and local state completely cleared");
+            console.log("🧹 New project can now be started with fresh repository");
         } catch (error) {
             console.error("❌ Error clearing memory:", error);
+        }
+    }
+
+    // Clear repository information specifically
+    async clearRepositoryInfo() {
+        try {
+            // Clear any stored repository information from memory
+            await this.saveContext(
+                { action: "clear_repository" },
+                { repository: null, timestamp: new Date().toISOString() }
+            );
+            console.log("🧹 Repository information cleared from memory");
+        } catch (error) {
+            console.error("❌ Error clearing repository info:", error);
         }
     }
 
@@ -295,7 +357,7 @@ class MemoryService {
     // Force reset project state for testing
     async forceResetProject() {
         console.log("🔄 Force resetting project state...");
-        
+
         // Load original plan from memory
         const memory = await this.loadMemoryVariables();
         for (const step of memory.past_steps || []) {
@@ -316,7 +378,7 @@ class MemoryService {
                 }
             }
         }
-        
+
         console.log("⚠️ No original plan found in memory");
         return false;
     }
@@ -324,7 +386,7 @@ class MemoryService {
     // Continue development with remaining tasks
     async continueDevelopment() {
         console.log("🔄 Continuing development with remaining tasks...");
-        
+
         // Check if we have remaining tasks
         if (this.projectState.remainingTasks && this.projectState.remainingTasks.length > 0) {
             console.log(`📋 Found ${this.projectState.remainingTasks.length} remaining tasks`);
@@ -332,7 +394,7 @@ class MemoryService {
             this.projectState.lastUpdated = new Date().toISOString();
             return true;
         }
-        
+
         // Try to load from memory
         const memory = await this.loadMemoryVariables();
         for (const step of memory.past_steps || []) {
@@ -352,7 +414,7 @@ class MemoryService {
                 }
             }
         }
-        
+
         console.log("⚠️ No tasks found to continue development");
         return false;
     }

@@ -24,6 +24,14 @@ const gitAgent = async (req, res) => {
         const isInitialized = await memoryService.isProjectInitialized();
         const isCompleted = await memoryService.isProjectCompleted();
 
+        // If there's a previous project (initialized but not completed), clear memory for new project
+        if (isInitialized && !isCompleted) {
+            console.log("🔄 Previous project in progress. Clearing memory to start fresh project...");
+            await memoryService.clearMemory();
+            await memoryService.clearRepositoryInfo();
+            console.log("✅ Memory and repository info cleared for new project");
+        }
+
         if (isCompleted) {
             return res.status(200).json({
                 success: true,

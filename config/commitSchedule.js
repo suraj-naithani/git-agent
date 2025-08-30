@@ -2,8 +2,8 @@ export const commitScheduleConfig = {
     // Test mode: commit every 2 minutes
     test: {
         mode: "test",
-        interval: "2m",
-        cronExpression: "*/2 * * * *",
+        interval: "1m",
+        cronExpression: "*/1 * * * *",
         description: "Commit every 2 minutes for testing"
     },
 

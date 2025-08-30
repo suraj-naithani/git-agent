@@ -73,6 +73,16 @@ class AgentOrchestrator {
                 }
             }
 
+            // Save repository information to memory
+            if (result.repo) {
+                try {
+                    await memoryService.saveRepositoryInfo(result.repo);
+                    console.log(`📁 Saved repository info: ${result.repo.name}`);
+                } catch (error) {
+                    console.error("Error saving repository info to memory:", error);
+                }
+            }
+
             // Mark initialization as complete
             await memoryService.saveInitializationStatus("done");
             console.log("✅ Initial project setup completed and saved to memory");
@@ -116,11 +126,11 @@ class AgentOrchestrator {
                 return { status: "No project spec available" };
             }
 
-                        // If no remaining tasks, try to get the original plan from memory
+            // If no remaining tasks, try to get the original plan from memory
             if (!remainingTasks || remainingTasks.length === 0) {
                 console.log("🔄 No remaining tasks, checking original plan...");
                 const memory = await memoryService.loadMemoryVariables();
-                
+
                 // Try to find the original plan in memory
                 let originalPlanFound = false;
                 for (const step of memory.past_steps || []) {
@@ -139,7 +149,7 @@ class AgentOrchestrator {
                         }
                     }
                 }
-                
+
                 if (originalPlanFound) {
                     console.log("🔄 Restarting cycle with reset tasks...");
                     return await this.runDailyCycle(); // Recursive call with reset tasks
@@ -156,11 +166,24 @@ class AgentOrchestrator {
             console.log(`   - Next task: ${remainingTasks[0]?.title || 'None'}`);
             console.log(`   - Project spec available: ${!!projectSpec}`);
 
-            // Get repository info from environment or use a default
-            const repo = {
-                name: process.env.GITHUB_REPO_NAME || "ai-stock-sentiment-analyzer",
-                url: process.env.GITHUB_REPO_URL || "https://github.com/yourusername/ai-stock-sentiment-analyzer"
-            };
+            // Get repository info from memory or generate new one
+            let repo = await memoryService.getRepositoryInfo();
+
+            if (repo) {
+                console.log(`📁 Found repository in memory: ${repo.name}`);
+            } else {
+                // Generate new repository name based on project spec
+                const projectName = projectSpec?.name || "new-project";
+                const repoName = projectName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+                repo = {
+                    name: process.env.GITHUB_REPO_NAME || repoName,
+                    url: process.env.GITHUB_REPO_URL || `https://github.com/yourusername/${repoName}`
+                };
+                console.log(`📁 Generated new repository: ${repo.name}`);
+
+                // Save the new repository info to memory
+                await memoryService.saveRepositoryInfo(repo);
+            }
 
             const state = {
                 projectSpec,
