@@ -22,6 +22,200 @@ const validateState = (state, requiredFields = []) => {
     return true;
 };
 
+// AI-powered README generation function with retry logic
+const generateAIReadme = async (projectSpec, repo) => {
+    const maxRetries = 3;
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`🔄 Attempting to generate README (attempt ${attempt}/${maxRetries})...`);
+
+            const model = chatLLM();
+            const parser = new StringOutputParser();
+
+            const prompt = `You are a SENIOR TECHNICAL WRITER and SOFTWARE DOCUMENTATION EXPERT with 15+ years of experience at top tech companies. Create a PROFESSIONAL, OPTIMIZED, and ENGAGING README.md file for this project.
+
+                            PROJECT DETAILS:
+                            ${JSON.stringify(projectSpec, null, 2)}
+                            
+                            REPOSITORY: ${repo.name}
+                            REPO URL: ${repo.html_url}
+                            
+                            REQUIREMENTS:
+                            1. **PROFESSIONAL FORMATTING**: Use proper Markdown syntax with emojis, badges, and clear sections
+                            2. **OPTIMIZED STRUCTURE**: Follow industry best practices for README organization
+                            3. **ENGAGING CONTENT**: Make it attractive and informative for developers
+                            4. **TECHNICAL ACCURACY**: Ensure all technical details are correct and up-to-date
+                            5. **COMPLETE SECTIONS**: Include all essential README sections
+                            6. **PRODUCTION READY**: Make it suitable for professional GitHub repositories
+                            
+                            MANDATORY SECTIONS (in this order):
+                            1. **Project Title** - With badges (build status, version, license, etc.)
+                            2. **Project Description** - Clear, concise overview
+                            3. **Features** - Bullet points of key features
+                            4. **Tech Stack** - Organized by frontend/backend/database/etc.
+                            5. **Installation** - Setup instructions with bullet points
+                            6. **Usage** - How to use the project
+                            7. **API Documentation** - If it's an API project
+                            8. **Testing** - How to run tests
+                            9. **Deployment** - Deployment instructions
+                            10. **Contributing** - Guidelines for contributors
+                            11. **License** - License information
+                            12. **Acknowledgments** - Credits and thanks
+                            
+                            TECH STACK ORGANIZATION:
+                            - Group technologies logically (Frontend, Backend, Database, DevOps, etc.)
+                            - Use appropriate icons/emojis for each technology
+                            - Include version requirements if critical
+                            
+                            INSTALLATION INSTRUCTIONS (CRITICAL FORMATTING):
+                            - Use bullet points (-) for each step
+                            - Put ALL commands in \`\`\`bash code blocks
+                            - Each command should be on a separate line
+                            - Make it copy-paste friendly
+                            - NEVER put commands inline with text
+                            - NEVER use "bash" prefix before commands
+                            
+                            CRITICAL WARNINGS:
+                            - NEVER put installation commands inline like "bash git clone" - use proper code blocks
+                            - ALWAYS put commands in separate \`\`\`bash code blocks
+                            - ALWAYS use bullet points (-) for installation steps
+                            
+                            Return ONLY the complete README.md content in Markdown format. No explanations, no code blocks, just the raw README content.`;
+                            
+            const response = await model.invoke([["human", prompt]]);
+            let readmeContent = await parser.parse(response.content);
+
+            // Clean up the response
+            readmeContent = readmeContent
+                .replace(/```(?:markdown|md)?\s*/gi, "")
+                .replace(/```/g, "")
+                .trim();
+
+            // Validate that we got actual README content
+            if (!readmeContent || readmeContent.length < 100) {
+                throw new Error('Generated README content is too short');
+            }
+
+            // Check if it starts with a proper heading
+            if (!readmeContent.startsWith('#')) {
+                readmeContent = `# ${projectSpec.title}\n\n${readmeContent}`;
+            }
+
+            console.log(`✅ AI-generated README content (${readmeContent.length} characters)`);
+            return readmeContent;
+
+        } catch (error) {
+            lastError = error;
+            console.error(`❌ AI README generation attempt ${attempt} failed:`, error.message);
+
+            if (attempt < maxRetries) {
+                console.log(`🔄 Retrying in 2 seconds...`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+    }
+
+    // If all retries failed, throw the last error
+    console.error(`❌ All ${maxRetries} attempts to generate README failed`);
+    throw new Error(`Failed to generate README after ${maxRetries} attempts: ${lastError.message}`);
+};
+
+// Helper function to validate and normalize file paths
+const normalizeFilePath = (filePath, taskTitle) => {
+    let normalizedPath = filePath
+        .replace(/^\/+/, '') // Remove leading slashes
+        .replace(/\/+/g, '/') // Normalize multiple slashes
+        .replace(/^\.\//, '') // Remove leading ./
+        .trim();
+
+    // Handle directory paths by creating appropriate files
+    if (normalizedPath.endsWith('/') || normalizedPath === 'root' || normalizedPath === 'frontend' || normalizedPath === 'backend') {
+        if (normalizedPath === 'root' || normalizedPath === '') {
+            normalizedPath = 'README.md';
+        } else if (normalizedPath === 'frontend') {
+            normalizedPath = 'frontend/package.json';
+        } else if (normalizedPath === 'backend') {
+            normalizedPath = 'backend/package.json';
+        } else {
+            normalizedPath = normalizedPath.replace(/\/$/, '') + '/index.js';
+        }
+    }
+
+    // Ensure the path has a proper file extension
+    if (!normalizedPath.includes('.')) {
+        normalizedPath = `${normalizedPath}.js`;
+    }
+
+    // Validate the final path - ensure no double slashes
+    normalizedPath = normalizedPath.replace(/\/+/g, '/');
+
+    // Remove any leading/trailing slashes
+    normalizedPath = normalizedPath.replace(/^\/+|\/+$/g, '');
+
+    // Validate the final path
+    if (normalizedPath.length === 0) {
+        normalizedPath = `src/${taskTitle.toLowerCase().replace(/\s+/g, '-')}.js`;
+    }
+
+    return normalizedPath;
+};
+
+// Helper function for enhanced documentation
+const generateEnhancedDocumentation = (projectSpec, repo) => {
+    const features = projectSpec.features || [];
+    const techStack = projectSpec.techStack || [];
+    const timeline = projectSpec.timeline || 'TBD';
+    const description = projectSpec.description || '';
+    const targetAudience = projectSpec.targetAudience || 'Developers';
+
+    return `# ${projectSpec.title}
+            ${description ? `${description}\n\n` : ''}## 🎯 Project Overview
+            This is a ${projectSpec.complexity?.toLowerCase() || 'intermediate'} ${projectSpec.type?.toLowerCase() || 'software'} project designed for ${targetAudience}.
+
+            ## ✨ Features
+            ${features.map(f => `- ${f}`).join('\n')}
+
+            ## 🛠️ Tech Stack
+            ${techStack.join(', ')}
+
+            ## 📅 Timeline
+            ${timeline}
+
+            ## 🚀 Getting Started
+
+            ### Prerequisites
+            - Node.js (if applicable)
+            - Required dependencies
+
+            ### Installation
+            \`\`\`bash
+            git clone ${repo.html_url}
+            cd ${repo.name}
+            npm install  # or appropriate package manager command
+            \`\`\`
+
+            ### Usage
+            \`\`\`bash
+            npm start  # or appropriate start command
+            \`\`\`
+
+            ## 📝 License
+            This project is licensed under the MIT License.
+
+            ## 🤝 Contributing
+            Contributions are welcome! Please feel free to submit a Pull Request.
+
+            ## 📚 Additional Resources
+            - Project Repository: ${repo.url}
+            - Issue Tracker: ${repo.url}/issues
+            - Pull Requests: ${repo.url}/pulls
+
+            ---
+            *Generated by AI Git Agent Team*`;
+};
+
 export const generateIdea = async (state) => {
     try {
         // Validate input state
@@ -280,148 +474,6 @@ export const manageRepository = async (state) => {
             repo: { name: "mock-repo", url: "http://mock-repo.com" }
         };
     }
-};
-
-// AI-powered README generation function with retry logic
-const generateAIReadme = async (projectSpec, repo) => {
-    const maxRetries = 3;
-    let lastError;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            console.log(`🔄 Attempting to generate README (attempt ${attempt}/${maxRetries})...`);
-
-            const model = chatLLM();
-            const parser = new StringOutputParser();
-
-            const prompt = `You are a SENIOR TECHNICAL WRITER and SOFTWARE DOCUMENTATION EXPERT with 15+ years of experience at top tech companies. Create a PROFESSIONAL, OPTIMIZED, and ENGAGING README.md file for this project.
-
-        PROJECT DETAILS:
-        ${JSON.stringify(projectSpec, null, 2)}
-
-        REPOSITORY: ${repo.name}
-        REPO URL: ${repo.html_url}
-
-        REQUIREMENTS:
-        1. **PROFESSIONAL FORMATTING**: Use proper Markdown syntax with emojis, badges, and clear sections
-        2. **OPTIMIZED STRUCTURE**: Follow industry best practices for README organization
-        3. **ENGAGING CONTENT**: Make it attractive and informative for developers
-        4. **TECHNICAL ACCURACY**: Ensure all technical details are correct and up-to-date
-        5. **COMPLETE SECTIONS**: Include all essential README sections
-        6. **PRODUCTION READY**: Make it suitable for professional GitHub repositories
-
-        MANDATORY SECTIONS (in this order):
-        1. **Project Title** - With badges (build status, version, license, etc.)
-        2. **Project Description** - Clear, concise overview
-        3. **Features** - Bullet points of key features
-        4. **Tech Stack** - Organized by frontend/backend/database/etc.
-        5. **Installation** - Setup instructions with bullet points
-        6. **Usage** - How to use the project
-        7. **API Documentation** - If it's an API project
-        8. **Testing** - How to run tests
-        9. **Deployment** - Deployment instructions
-        10. **Contributing** - Guidelines for contributors
-        11. **License** - License information
-        12. **Acknowledgments** - Credits and thanks
-
-        TECH STACK ORGANIZATION:
-        - Group technologies logically (Frontend, Backend, Database, DevOps, etc.)
-        - Use appropriate icons/emojis for each technology
-        - Include version requirements if critical
-
-        INSTALLATION INSTRUCTIONS (CRITICAL FORMATTING):
-        - Use bullet points (-) for each step
-        - Put ALL commands in \`\`\`bash code blocks
-        - Each command should be on a separate line
-        - Make it copy-paste friendly
-        - NEVER put commands inline with text
-        - NEVER use "bash" prefix before commands
-    
-        CRITICAL WARNINGS:
-        - NEVER put installation commands inline like "bash git clone" - use proper code blocks
-        - ALWAYS put commands in separate \`\`\`bash code blocks
-        - ALWAYS use bullet points (-) for installation steps
-
-        Return ONLY the complete README.md content in Markdown format. No explanations, no code blocks, just the raw README content.`;
-
-            const response = await model.invoke([["human", prompt]]);
-            let readmeContent = await parser.parse(response.content);
-
-            // Clean up the response
-            readmeContent = readmeContent
-                .replace(/```(?:markdown|md)?\s*/gi, "")
-                .replace(/```/g, "")
-                .trim();
-
-            // Validate that we got actual README content
-            if (!readmeContent || readmeContent.length < 100) {
-                throw new Error('Generated README content is too short');
-            }
-
-            // Check if it starts with a proper heading
-            if (!readmeContent.startsWith('#')) {
-                readmeContent = `# ${projectSpec.title}\n\n${readmeContent}`;
-            }
-
-            console.log(`✅ AI-generated README content (${readmeContent.length} characters)`);
-            return readmeContent;
-
-        } catch (error) {
-            lastError = error;
-            console.error(`❌ AI README generation attempt ${attempt} failed:`, error.message);
-
-            if (attempt < maxRetries) {
-                console.log(`🔄 Retrying in 2 seconds...`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-    }
-
-    // If all retries failed, throw the last error
-    console.error(`❌ All ${maxRetries} attempts to generate README failed`);
-    throw new Error(`Failed to generate README after ${maxRetries} attempts: ${lastError.message}`);
-};
-
-
-
-// Helper function to validate and normalize file paths
-const normalizeFilePath = (filePath, taskTitle) => {
-    let normalizedPath = filePath
-        .replace(/^\/+/, '') // Remove leading slashes
-        .replace(/\/+/g, '/') // Normalize multiple slashes
-        .replace(/^\.\//, '') // Remove leading ./
-        .trim();
-
-    // Handle directory paths by creating appropriate files
-    if (normalizedPath.endsWith('/') || normalizedPath === 'root' || normalizedPath === 'frontend' || normalizedPath === 'backend') {
-        if (normalizedPath === 'root' || normalizedPath === '') {
-            normalizedPath = 'README.md';
-        } else if (normalizedPath === 'frontend') {
-            normalizedPath = 'frontend/package.json';
-        } else if (normalizedPath === 'backend') {
-            normalizedPath = 'backend/package.json';
-        } else {
-            normalizedPath = normalizedPath.replace(/\/$/, '') + '/index.js';
-        }
-    }
-
-    // Ensure the path has a proper file extension
-    if (!normalizedPath.includes('.')) {
-        normalizedPath = `${normalizedPath}.js`;
-    }
-
-    // Validate the final path - ensure no double slashes
-    normalizedPath = normalizedPath.replace(/\/+/g, '/');
-
-    // Remove any leading/trailing slashes
-    normalizedPath = normalizedPath.replace(/^\/+|\/+$/g, '');
-
-    // Validate the final path
-    if (normalizedPath.length === 0) {
-        normalizedPath = `src/${taskTitle.toLowerCase().replace(/\s+/g, '-')}.js`;
-    }
-
-    return normalizedPath;
 };
 
 export const developCode = async (state) => {
@@ -794,60 +846,6 @@ export const manageContent = async (state) => {
         logError('manageContent', error, { state });
         return { ...state, documentation: "# Error: Could not generate documentation" };
     }
-};
-
-// Helper function for enhanced documentation
-const generateEnhancedDocumentation = (projectSpec, repo) => {
-    const features = projectSpec.features || [];
-    const techStack = projectSpec.techStack || [];
-    const timeline = projectSpec.timeline || 'TBD';
-    const description = projectSpec.description || '';
-    const targetAudience = projectSpec.targetAudience || 'Developers';
-
-    return `# ${projectSpec.title}
-            ${description ? `${description}\n\n` : ''}## 🎯 Project Overview
-            This is a ${projectSpec.complexity?.toLowerCase() || 'intermediate'} ${projectSpec.type?.toLowerCase() || 'software'} project designed for ${targetAudience}.
-
-            ## ✨ Features
-            ${features.map(f => `- ${f}`).join('\n')}
-
-            ## 🛠️ Tech Stack
-            ${techStack.join(', ')}
-
-            ## 📅 Timeline
-            ${timeline}
-
-            ## 🚀 Getting Started
-
-            ### Prerequisites
-            - Node.js (if applicable)
-            - Required dependencies
-
-            ### Installation
-            \`\`\`bash
-            git clone ${repo.html_url}
-            cd ${repo.name}
-            npm install  # or appropriate package manager command
-            \`\`\`
-
-            ### Usage
-            \`\`\`bash
-            npm start  # or appropriate start command
-            \`\`\`
-
-            ## 📝 License
-            This project is licensed under the MIT License.
-
-            ## 🤝 Contributing
-            Contributions are welcome! Please feel free to submit a Pull Request.
-
-            ## 📚 Additional Resources
-            - Project Repository: ${repo.url}
-            - Issue Tracker: ${repo.url}/issues
-            - Pull Requests: ${repo.url}/pulls
-
-            ---
-            *Generated by AI Git Agent Team*`;
 };
 
 export const optimizeLearning = async (state) => {
