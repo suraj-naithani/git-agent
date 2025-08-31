@@ -246,8 +246,8 @@ export const manageRepository = async (state) => {
             }
         }
 
-        // Enhanced README content generation
-        const readmeContent = generateReadmeContent(projectSpec, repo);
+        // Generate README content using AI for better quality
+        const readmeContent = await generateAIReadme(projectSpec, repo);
 
         // Update or create README
         let readmeSha;
@@ -282,8 +282,96 @@ export const manageRepository = async (state) => {
     }
 };
 
-// Helper function to generate comprehensive README content
-const generateReadmeContent = (projectSpec, repo) => {
+// AI-powered README generation function
+const generateAIReadme = async (projectSpec, repo) => {
+    try {
+        const model = chatLLM();
+        const parser = new StringOutputParser();
+
+        const prompt = `You are a SENIOR TECHNICAL WRITER and SOFTWARE DOCUMENTATION EXPERT with 15+ years of experience at top tech companies. Create a PROFESSIONAL, OPTIMIZED, and ENGAGING README.md file for this project.
+
+PROJECT DETAILS:
+${JSON.stringify(projectSpec, null, 2)}
+
+REPOSITORY: ${repo.name}
+REPO URL: ${repo.html_url}
+
+REQUIREMENTS:
+1. **PROFESSIONAL FORMATTING**: Use proper Markdown syntax with emojis, badges, and clear sections
+2. **OPTIMIZED STRUCTURE**: Follow industry best practices for README organization
+3. **ENGAGING CONTENT**: Make it attractive and informative for developers
+4. **TECHNICAL ACCURACY**: Ensure all technical details are correct and up-to-date
+5. **COMPLETE SECTIONS**: Include all essential README sections
+6. **PRODUCTION READY**: Make it suitable for professional GitHub repositories
+
+MANDATORY SECTIONS (in this order):
+1. **Project Title** - With badges (build status, version, license, etc.)
+2. **Project Description** - Clear, concise overview
+3. **Features** - Bullet points of key features
+4. **Tech Stack** - Organized by frontend/backend/database/etc.
+5. **Installation** - Setup instructions with bullet points
+6. **Usage** - How to use the project
+7. **API Documentation** - If it's an API project
+8. **Testing** - How to run tests
+9. **Deployment** - Deployment instructions
+10. **Contributing** - Guidelines for contributors
+11. **License** - License information
+12. **Acknowledgments** - Credits and thanks
+
+TECH STACK ORGANIZATION:
+- Group technologies logically (Frontend, Backend, Database, DevOps, etc.)
+- Use appropriate icons/emojis for each technology
+- Include version requirements if critical
+
+INSTALLATION INSTRUCTIONS (CRITICAL FORMATTING):
+- Use bullet points (-) for each step
+- Put ALL commands in \`\`\`bash code blocks
+- Each command should be on a separate line
+- Make it copy-paste friendly
+- NEVER put commands inline with text
+- NEVER use "bash" prefix before commands
+
+
+
+
+CRITICAL WARNINGS:
+- NEVER put installation commands inline like "bash git clone" - use proper code blocks
+- ALWAYS put commands in separate \`\`\`bash code blocks
+- ALWAYS use bullet points (-) for installation steps
+
+Return ONLY the complete README.md content in Markdown format. No explanations, no code blocks, just the raw README content.`;
+
+        const response = await model.invoke([["human", prompt]]);
+        let readmeContent = await parser.parse(response.content);
+
+        // Clean up the response
+        readmeContent = readmeContent
+            .replace(/```(?:markdown|md)?\s*/gi, "")
+            .replace(/```/g, "")
+            .trim();
+
+        // Validate that we got actual README content
+        if (!readmeContent || readmeContent.length < 100) {
+            throw new Error('Generated README content is too short');
+        }
+
+        // Check if it starts with a proper heading
+        if (!readmeContent.startsWith('#')) {
+            readmeContent = `# ${projectSpec.title}\n\n${readmeContent}`;
+        }
+
+        console.log(`✅ AI-generated README content (${readmeContent.length} characters)`);
+        return readmeContent;
+
+    } catch (error) {
+        console.error("❌ AI README generation failed:", error.message);
+        console.log("🔄 Falling back to template README...");
+        return generateFallbackReadme(projectSpec, repo);
+    }
+};
+
+// Fallback README generation if AI fails
+const generateFallbackReadme = (projectSpec, repo) => {
     const features = projectSpec.features || [];
     const techStack = projectSpec.techStack || [];
     const timeline = projectSpec.timeline || 'TBD';
@@ -291,44 +379,99 @@ const generateReadmeContent = (projectSpec, repo) => {
     const targetAudience = projectSpec.targetAudience || 'Developers';
 
     return `# ${projectSpec.title}
-                ${description ? `${description}\n\n` : ''}## 🎯 Project Overview
-                This is a ${projectSpec.complexity?.toLowerCase() || 'intermediate'} ${projectSpec.type?.toLowerCase() || 'software'} project designed for ${targetAudience}.
 
-                ## ✨ Features
-                ${features.map(f => `- ${f}`).join('\n')}
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+[![Code Quality](https://img.shields.io/badge/code%20quality-A%2B-brightgreen.svg)]()
 
-                ## 🛠️ Tech Stack
-                ${techStack.join(', ')}
+${description ? `${description}\n\n` : ''}## 🎯 Project Overview
 
-                ## 📅 Timeline
-                ${timeline}
+A ${projectSpec.complexity?.toLowerCase() || 'intermediate'} ${projectSpec.type?.toLowerCase() || 'software'} project designed for ${targetAudience}.
 
-                ## 🚀 Getting Started
+## ✨ Features
 
-                ### Prerequisites
-                - Node.js (if applicable)
-                - Required dependencies
+${features.length > 0 ? features.map(f => `- ${f}`).join('\n') : '- Modern architecture and best practices\n- Scalable design\n- Production-ready code'}
 
-                ### Installation
-                \`\`\`bash
-                git clone ${repo.html_url}
-                cd ${repo.name}
-                npm install  # or appropriate package manager command
-                \`\`\`
+## 🛠️ Tech Stack
 
-                ### Usage
-                \`\`\`bash
-                npm start  # or appropriate start command
-                \`\`\`
+${techStack.length > 0 ? techStack.join(', ') : 'Modern web technologies'}
 
-                ## 📝 License
-                This project is licensed under the MIT License.
+## 📅 Timeline
 
-                ## 🤝 Contributing
-                Contributions are welcome! Please feel free to submit a Pull Request.
+${timeline}
 
-                ---
-                *Generated by AI Git Agent Team*`;
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 18+ (if using Node.js)
+- Python 3.8+ (if using Python)
+- Git
+
+### Installation
+
+- **Clone the repository:**
+  \`\`\`bash
+  git clone ${repo.html_url}
+  cd ${repo.name}
+  \`\`\`
+
+- **Install dependencies:**
+  \`\`\`bash
+  npm install
+  \`\`\`
+
+- **Start the application:**
+  \`\`\`bash
+  npm start
+  \`\`\`
+
+### Usage
+
+\`\`\`bash
+# Start the application
+npm start
+\`\`\`
+
+
+
+## 🧪 Testing
+
+\`\`\`bash
+npm test
+\`\`\`
+
+## 🚀 Deployment
+
+This project is production-ready and can be deployed to:
+
+- **Cloud Platforms**: AWS, Azure, Google Cloud
+- **Container Platforms**: Docker, Kubernetes
+- **Serverless**: Vercel, Netlify, AWS Lambda
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (\`git checkout -b feature/amazing-feature\`)
+3. Commit your changes (\`git commit -m 'Add amazing feature'\`)
+4. Push to the branch (\`git push origin feature/amazing-feature\`)
+5. Open a Pull Request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Built with modern development practices
+- Follows industry standards and conventions
+- Designed for scalability and maintainability
+
+---
+
+**Built with ❤️ using cutting-edge technologies and best practices**
+
+*Generated by AI Development Agent*`;
 };
 
 // Helper function to validate and normalize file paths
