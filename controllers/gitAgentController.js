@@ -5,6 +5,7 @@ import { cronScheduler } from "../services/serviceManager.js";
 
 const inputSchema = z.object({
     projectName: z.string().nullable().optional().describe("Specific project name/idea to create (can be null for random project)"),
+    description: z.string().optional().describe("Additional description or context about what you want the AI to create (optional)"),
     complexity: z.enum(['beginner', 'intermediate', 'advanced']).default('beginner'),
     techConstraints: z.array(z.string()).default(['Node.js', 'MongoDB'])
 });
@@ -46,6 +47,7 @@ const gitAgent = async (req, res) => {
             console.log("🚀 Running initial project setup cycle...");
             result = await orchestrator.runInitialCycle({
                 projectName: input.projectName,
+                description: input.description,
                 complexity: input.complexity,
                 techConstraints: input.techConstraints
             });

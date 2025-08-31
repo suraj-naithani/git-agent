@@ -75,6 +75,24 @@ PORT=3000
 ### Project Status
 - `GET /api/git-agent/status` - Check project initialization and completion status
 
+## Request Schema
+
+### POST /api/git-agent/run Request Body
+```json
+{
+  "projectName": "string (optional) - Specific project name/idea",
+  "description": "string (optional) - Additional context about what you want to create",
+  "complexity": "string (required) - 'beginner' | 'intermediate' | 'advanced'",
+  "techConstraints": "array (optional) - Array of technology preferences"
+}
+```
+
+### Field Descriptions
+- **projectName**: Optional. If provided, AI will create a project matching this exact name
+- **description**: Optional. Provides additional context to help AI understand your vision better
+- **complexity**: Required. Sets the project difficulty level  
+- **techConstraints**: Optional. Array of preferred technologies (e.g., ["Node.js", "React", "MongoDB"])
+
 ## Usage Examples
 
 ### 1. Start New Project
@@ -83,6 +101,7 @@ curl -X POST http://localhost:3000/api/git-agent/run \
   -H "Content-Type: application/json" \
   -d '{
     "projectName": "My Awesome App",
+    "description": "A modern web application for task management with real-time updates",
     "complexity": "intermediate",
     "techConstraints": ["Node.js", "React"]
   }'

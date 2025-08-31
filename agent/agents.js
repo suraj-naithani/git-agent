@@ -139,16 +139,19 @@ export const generateIdea = async (state) => {
                         - Complexity: ${state.complexity}
                         - Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"}
                         - Project Variety: Focus on creating unique, innovative concepts`}
+                        ${state.description ? `\nUSER DESCRIPTION: "${state.description}"\nPlease incorporate this description and context into the project specification.` : ''}
 
                         Requirements:
                         - ${state.projectName ? `Create a project that matches the name "${state.projectName}"` : 'Ensure the project is feasible and implementable'}
                         - ${state.projectName ? 'Make the project name match exactly what the user requested' : 'Select appropriate tech stack for the complexity level'}
+                        - ${state.description ? 'Incorporate the user\'s description and context into the project features and description' : ''}
                         - Create engaging features that demonstrate technical skills
                         - Provide realistic timeline estimates
                         - Choose modern, relevant technologies that work well together
                         - Consider the project's specific needs and requirements
 
                         ${state.projectName ? `IMPORTANT: The project title MUST be exactly "${state.projectName}" as requested by the user.` : ''}
+                        ${state.description ? `IMPORTANT: The project description and features MUST reflect the user's description: "${state.description}"` : ''}
 
                         Return ONLY valid JSON in this exact format:
                         {
@@ -187,7 +190,7 @@ export const generateIdea = async (state) => {
                 techStack: state.techConstraints || ["Node.js"],
                 features: ["Feature 1", "Feature 2"],
                 timeline: "2 weeks",
-                description: state.projectName ? `Fallback project for ${state.projectName} due to error` : "Fallback project due to error",
+                description: state.description || (state.projectName ? `Fallback project for ${state.projectName} due to error` : "Fallback project due to error"),
                 targetAudience: "Developers"
             })
         };
