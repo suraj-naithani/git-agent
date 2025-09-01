@@ -4,7 +4,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 
 const MODEL_PROVIDER = process.env.MODEL_PROVIDER || "openai"; // Can be overridden by env var, defaults to OpenAI
-const TEMPERATURE = 0.7;
+const TEMPERATURE = 0;
 
 export function chatLLM({ json = false } = {}) {
     switch (MODEL_PROVIDER.toLowerCase()) {
