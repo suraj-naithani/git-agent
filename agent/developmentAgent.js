@@ -321,7 +321,8 @@ The code must be functional and immediately runnable.`;
         // Check if all tasks are completed
         if (updatedRemainingTasks.length === 0) {
             console.log("🎉 All tasks completed! Project finished.");
-            // Note: Project completion is now handled in memoryService.updateRemainingTasks()
+            await memoryService.markProjectCompleted();
+            console.log("✅ Project marked as completed - cron will stop automatically");
         }
 
         // Send task completion notification

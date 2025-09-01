@@ -176,8 +176,9 @@ class MemoryService {
 
         // Only mark project as completed if there are no more tasks AND we've checked the original plan
         if (updatedTasks.length === 0) {
-            console.log("🔄 No remaining tasks - checking if project is truly completed...");
-            // Don't mark as completed here - let the workflow handle it
+            console.log("🔄 No remaining tasks - marking project as completed...");
+            await this.markProjectCompleted();
+            console.log("✅ Project automatically marked as completed - cron will stop");
         }
     }
 
