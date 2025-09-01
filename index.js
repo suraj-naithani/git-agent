@@ -10,7 +10,10 @@ app.use(express.json());
 
 // Import routes after setting up express
 import gitAgentRoutes from "./routes/gitAgentRoutes.js";
+import codeUpdateRoutes from "./routes/codeUpdateRoutes.js";
+
 app.use("/api/git-agent", gitAgentRoutes);
+app.use("/api/code-update", codeUpdateRoutes);
 
 // Start server without cron scheduler (will be started manually after first API call)
 app.listen(PORT, async () => {
