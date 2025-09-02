@@ -3,8 +3,8 @@ dotenv.config();
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 
-const MODEL_PROVIDER = "openai"; // Change this to "openai" or "gemini"
-const TEMPERATURE = 0; 
+const MODEL_PROVIDER = process.env.MODEL_PROVIDER || "openai"; // Can be overridden by env var, defaults to OpenAI
+const TEMPERATURE = 0;
 
 export function chatLLM({ json = false } = {}) {
     switch (MODEL_PROVIDER.toLowerCase()) {
@@ -24,7 +24,7 @@ export function chatLLM({ json = false } = {}) {
 
         case "gemini":
             return new ChatGoogleGenerativeAI({
-                model: "gemini-1.5-pro",
+                model: "gemini-1.5-flash",
                 temperature: TEMPERATURE,
                 apiKey: process.env.GOOGLE_API_KEY,
                 generationConfig: json ? { response_mime_type: "application/json" } : undefined
