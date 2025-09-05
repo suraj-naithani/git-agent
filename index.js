@@ -19,6 +19,11 @@ app.use("/api/code-update", codeUpdateRoutes);
 app.listen(PORT, async () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     console.log("⏰ Cron scheduler will start after first project initialization");
+
+    // Start keep-alive after server starts
+    setInterval(() => {
+        console.log("🟢 Server is live");
+    }, 10 * 60 * 1000);
 });
 
 // Graceful shutdown
