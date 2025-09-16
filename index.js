@@ -27,13 +27,13 @@ app.listen(PORT, async () => {
     console.log("⏰ Cron scheduler will start after first project initialization");
 
     // Ping our own health endpoint every 10 minutes to keep server alive
-    setInterval(async () => {
-        try {
-            await fetch("https://git-agent-943x.onrender.com/health");
-        } catch (error) {
-            console.log("❌ Self-ping error:", error.message);
-        }
-    }, 10 * 60 * 1000); // 10 minutes
+    // setInterval(async () => {
+    //     try {
+    //         await fetch("https://git-agent-943x.onrender.com/health");
+    //     } catch (error) {
+    //         console.log("❌ Self-ping error:", error.message);
+    //     }
+    // }, 10 * 60 * 1000); // 10 minutes
 });
 
 // Graceful shutdown
