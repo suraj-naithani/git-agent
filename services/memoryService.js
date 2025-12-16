@@ -19,7 +19,8 @@ class MemoryService {
             isCompleted: false,
             remainingTasks: [],
             projectSpec: null,
-            lastUpdated: null
+            lastUpdated: null,
+            initialProjectParams: null // Store original project parameters for auto-restart
         };
     }
 
@@ -302,8 +303,12 @@ class MemoryService {
     }
 
     // Clear memory (useful for testing or resetting)
-    async clearMemory() {
+    // preserveInitialParams: if true, keeps initialProjectParams for auto-restart
+    async clearMemory(preserveInitialParams = false) {
         try {
+            // Preserve initial params if requested (for auto-restart)
+            const preservedParams = preserveInitialParams ? this.projectState.initialProjectParams : null;
+
             // Create completely new memory instance
             this.memory = new BufferMemory({
                 memoryKey: "past_steps",
@@ -321,13 +326,18 @@ class MemoryService {
                 isCompleted: false,
                 remainingTasks: [],
                 projectSpec: null,
-                lastUpdated: null
+                lastUpdated: null,
+                initialProjectParams: preservedParams // Preserve if requested
             };
 
             // Clear any stored repository information
             await this.clearRepositoryInfo();
 
-            console.log("🧹 Memory and local state completely cleared");
+            if (preserveInitialParams && preservedParams) {
+                console.log("🧹 Memory and local state cleared (initial params preserved for auto-restart)");
+            } else {
+                console.log("🧹 Memory and local state completely cleared");
+            }
             console.log("🧹 New project can now be started with fresh repository");
         } catch (error) {
             console.error("❌ Error clearing memory:", error);
@@ -420,6 +430,68 @@ class MemoryService {
         return false;
     }
 
+    // Save initial project parameters for auto-restart
+    async saveInitialProjectParams(params) {
+        // Store in local state
+        this.projectState.initialProjectParams = {
+            projectName: params.projectName ?? null,
+            description: params.description || null,
+            complexity: params.complexity || 'beginner',
+            techConstraints: params.techConstraints || ['Node.js', 'MongoDB']
+        };
+        this.projectState.lastUpdated = new Date().toISOString();
+
+        // Also save to LangChain memory for persistence
+        await this.saveContext(
+            { action: "save_initial_project_params" },
+            { initialProjectParams: this.projectState.initialProjectParams, timestamp: new Date().toISOString() }
+        );
+
+        console.log("✅ Initial project parameters saved for auto-restart");
+    }
+
+    // Get initial project parameters
+    async getInitialProjectParams() {
+        // Use local state for immediate response
+        if (this.projectState.initialProjectParams) {
+            console.log("📋 Returning initial project params from local state");
+            return this.projectState.initialProjectParams;
+        }
+
+        // Fallback to memory parsing if local state is not set
+        const memory = await this.loadMemoryVariables();
+        try {
+            for (const step of memory.past_steps || []) {
+                const stepContent = step.content || '';
+                if (stepContent.includes("initialProjectParams") || stepContent.includes("save_initial_project_params")) {
+                    try {
+                        const parsed = JSON.parse(stepContent);
+                        if (parsed.initialProjectParams) {
+                            console.log("📋 Returning initial project params from memory");
+                            // Update local state for future use
+                            this.projectState.initialProjectParams = parsed.initialProjectParams;
+                            return parsed.initialProjectParams;
+                        }
+                    } catch (parseError) {
+                        // Continue to next step
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Error parsing initial project params from memory:", error);
+        }
+
+        console.log("📋 No initial project params found");
+        return null;
+    }
+
+    // Clear initial project parameters
+    async clearInitialProjectParams() {
+        this.projectState.initialProjectParams = null;
+        this.projectState.lastUpdated = new Date().toISOString();
+        console.log("🧹 Initial project parameters cleared");
+    }
+
     // Debug method to show current state
     async debugState() {
         console.log("🔍 Current Memory State:");
@@ -428,6 +500,7 @@ class MemoryService {
         console.log("  - remainingTasks count:", this.projectState.remainingTasks?.length || 0);
         console.log("  - projectSpec available:", !!this.projectState.projectSpec);
         console.log("  - lastUpdated:", this.projectState.lastUpdated);
+        console.log("  - initialProjectParams available:", !!this.projectState.initialProjectParams);
 
         if (this.projectState.remainingTasks && this.projectState.remainingTasks.length > 0) {
             console.log("  - Next task:", this.projectState.remainingTasks[0].title);

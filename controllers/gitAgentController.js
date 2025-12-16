@@ -45,6 +45,11 @@ const gitAgent = async (req, res) => {
         if (!isInitialized) {
             // First run: initialize project (idea → plan → repo setup)
             console.log("🚀 Running initial project setup cycle...");
+            
+            // Save initial project parameters for auto-restart
+            await memoryService.saveInitialProjectParams(input);
+            console.log("✅ Initial project parameters saved for auto-restart");
+            
             result = await orchestrator.runInitialCycle({
                 projectName: input.projectName,
                 description: input.description,

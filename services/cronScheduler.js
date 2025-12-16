@@ -7,6 +7,7 @@ class CronScheduler {
         this.orchestrator = orchestrator;
         this.jobs = new Map();
         this.isRunning = false;
+        this.autoRestartEnabled = true; // Enable auto-restart by default
     }
 
     // Start the cron scheduler
@@ -31,8 +32,12 @@ class CronScheduler {
                     // Check if project is completed
                     const isCompleted = await memoryService.isProjectCompleted();
                     if (isCompleted) {
-                        console.log("🎉 Project completed, stopping cron job");
-                        this.stop();
+                        console.log("🎉 Project completed, checking for auto-restart...");
+                        const restarted = await this.handleAutoRestart();
+                        if (!restarted) {
+                            console.log("🛑 Auto-restart not available, stopping cron job");
+                            this.stop();
+                        }
                         return;
                     }
 
@@ -54,8 +59,12 @@ class CronScheduler {
                     const result = await this.orchestrator.runDailyCycle();
 
                     if (result.status === "Project completed") {
-                        console.log("🎉 Project completed, stopping cron job");
-                        this.stop();
+                        console.log("🎉 Project completed, checking for auto-restart...");
+                        const restarted = await this.handleAutoRestart();
+                        if (!restarted) {
+                            console.log("🛑 Auto-restart not available, stopping cron job");
+                            this.stop();
+                        }
                     } else if (result.status === "Project not initialized") {
                         console.log("⚠️ Project not initialized, skipping cycle");
                     } else if (result.status === "No tasks available") {
@@ -164,6 +173,71 @@ class CronScheduler {
             console.error("❌ Error restarting cron scheduler:", error);
             throw error;
         }
+    }
+
+    // Handle auto-restart when project completes
+    async handleAutoRestart() {
+        try {
+            // Check if auto-restart is enabled
+            if (!this.autoRestartEnabled) {
+                console.log("⚠️ Auto-restart is disabled");
+                return false;
+            }
+
+            // Get stored initial project parameters
+            const initialParams = await memoryService.getInitialProjectParams();
+            if (!initialParams) {
+                console.log("⚠️ No initial project parameters found for auto-restart");
+                return false;
+            }
+
+            console.log("🔄 Auto-restart: Starting new project with stored parameters...");
+            console.log(`   - Project: ${initialParams.projectName || 'Random'}`);
+            console.log(`   - Complexity: ${initialParams.complexity}`);
+            console.log(`   - Tech Stack: ${initialParams.techConstraints?.join(', ') || 'Default'}`);
+
+            // Clear memory and repository info (preserving initial params)
+            await memoryService.clearMemory(true); // preserveInitialParams = true
+            await memoryService.clearRepositoryInfo();
+
+            // Re-save initial params to memory after clearing (for persistence)
+            await memoryService.saveInitialProjectParams(initialParams);
+
+            // Wait a moment for cleanup
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Start new project with stored parameters
+            try {
+                const result = await this.orchestrator.runInitialCycle({
+                    projectName: initialParams.projectName,
+                    description: initialParams.description,
+                    complexity: initialParams.complexity,
+                    techConstraints: initialParams.techConstraints
+                });
+
+                if (result.projectSpec && result.plan && result.repo) {
+                    console.log("✅ Auto-restart successful: New project initialized");
+                    console.log(`   - New repository: ${result.repo.name}`);
+                    // Cron scheduler is already running, so it will continue with the new project
+                    return true;
+                } else {
+                    console.error("❌ Auto-restart failed: Project initialization incomplete");
+                    return false;
+                }
+            } catch (initError) {
+                console.error("❌ Error during auto-restart project initialization:", initError);
+                return false;
+            }
+        } catch (error) {
+            console.error("❌ Error in auto-restart handler:", error);
+            return false;
+        }
+    }
+
+    // Enable/disable auto-restart
+    setAutoRestart(enabled) {
+        this.autoRestartEnabled = enabled;
+        console.log(`🔄 Auto-restart ${enabled ? 'enabled' : 'disabled'}`);
     }
 }
 
