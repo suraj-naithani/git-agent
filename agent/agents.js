@@ -278,8 +278,11 @@ export const manageRepository = async (state) => {
         // Validate input state
         validateState(state, ['projectSpec']);
 
+        // Determine GitHub token for this run (supports per-state token)
+        const effectiveToken = state.githubToken || process.env.GITHUB_TOKEN;
+
         // Check for GitHub token
-        if (!process.env.GITHUB_TOKEN) {
+        if (!effectiveToken) {
             logError('manageRepository', new Error('GITHUB_TOKEN not found'), { state });
             return {
                 ...state,
@@ -287,7 +290,7 @@ export const manageRepository = async (state) => {
             };
         }
 
-        const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
+        const github = new Octokit({ auth: effectiveToken });
 
         // Parse and validate project specification
         let projectSpec;

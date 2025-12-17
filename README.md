@@ -89,8 +89,15 @@ npm install
 Create a `.env` file in the root directory:
 
 ```bash
-# GitHub Configuration
+# GitHub Configuration (single or multiple accounts)
+
+# Option 1: Single account (backwards compatible)
 GITHUB_TOKEN=your_github_personal_access_token
+
+# Option 2: Multiple accounts (sequential runs for each)
+# GITHUB_TOKEN_1=first_account_personal_access_token
+# GITHUB_TOKEN_2=second_account_personal_access_token
+# GITHUB_TOKEN_3=third_account_personal_access_token
 
 # AI Model Configuration
 MODEL_PROVIDER=openai  # or "gemini"
@@ -130,7 +137,7 @@ node index.js
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
-| `GITHUB_TOKEN` | GitHub Personal Access Token | ✅ Yes | - |
+| `GITHUB_TOKEN` / `GITHUB_TOKEN_1..N` | GitHub Personal Access Token(s). When multiple are set (GITHUB_TOKEN_1, GITHUB_TOKEN_2, ...), the main git-agent workflow will run sequentially for each account. | ✅ Yes | - |
 | `MODEL_PROVIDER` | AI Model Provider (openai/gemini) | ❌ No | `openai` |
 | `OPENAI_API_KEY` | OpenAI API Key | ✅ Yes* | - |
 | `GOOGLE_API_KEY` | Google Gemini API Key | ✅ Yes* | - |

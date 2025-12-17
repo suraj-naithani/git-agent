@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Octokit } from "@octokit/rest";
 import { chatLLM } from "../utils/model.js";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import { getPrimaryGitHubToken } from "../utils/githubTokens.js";
 
 const updateSchema = z.object({
     repoName: z.string().describe("Name of the GitHub repository"),
@@ -23,14 +24,15 @@ const updateCode = async (req, res) => {
         const input = updateSchema.parse(req.body);
 
         // Validate GitHub token
-        if (!process.env.GITHUB_TOKEN) {
+        const token = getPrimaryGitHubToken();
+        if (!token) {
             return res.status(400).json({
                 success: false,
                 message: "GITHUB_TOKEN not found in environment variables"
             });
         }
 
-        const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
+        const github = new Octokit({ auth: token });
 
         // Get authenticated user
         const { data: user } = await github.users.getAuthenticated();
@@ -178,14 +180,15 @@ const deleteFileOrFolder = async (req, res) => {
         const input = deleteSchema.parse(req.body);
 
         // Validate GitHub token
-        if (!process.env.GITHUB_TOKEN) {
+        const token = getPrimaryGitHubToken();
+        if (!token) {
             return res.status(400).json({
                 success: false,
                 message: "GITHUB_TOKEN not found in environment variables"
             });
         }
 
-        const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
+        const github = new Octokit({ auth: token });
 
         // Get authenticated user
         const { data: user } = await github.users.getAuthenticated();

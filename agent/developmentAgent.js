@@ -219,12 +219,13 @@ The code must be functional and immediately runnable.`;
         let fullPath = normalizeFilePath(currentTask.filePath, currentTask.title);
         console.log(`📁 Normalized file path: ${currentTask.filePath} -> ${fullPath}`);
 
-        // GitHub operations
-        if (!process.env.GITHUB_TOKEN) {
+        // GitHub operations (support per-state token for multi-account runs)
+        const effectiveToken = state.githubToken || process.env.GITHUB_TOKEN;
+        if (!effectiveToken) {
             throw new Error('GITHUB_TOKEN not found in environment variables');
         }
 
-        const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
+        const github = new Octokit({ auth: effectiveToken });
         const { data: user } = await github.users.getAuthenticated();
         const owner = user.login;
 

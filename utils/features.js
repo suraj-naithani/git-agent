@@ -1,10 +1,11 @@
 import { Octokit } from 'octokit';
 import dotenv from 'dotenv';
+import { getPrimaryGitHubToken } from './githubTokens.js';
 dotenv.config();
 
-const token = process.env.GITHUB_TOKEN?.trim();
+const token = getPrimaryGitHubToken();
 const octokit = new Octokit({
-    auth: token,
+    auth: token || undefined,
     userAgent: 'git-automation v1.0'
 });
 

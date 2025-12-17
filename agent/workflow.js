@@ -1,5 +1,6 @@
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { z } from "zod";
+import { Octokit } from "@octokit/rest";
 import { generateIdea, manageRepository, planProject } from "./agents.js";
 import { developNextTask } from "./developmentAgent.js";
 import memoryService from "../services/memoryService.js";
@@ -19,7 +20,8 @@ const stateSchema = z.object({
     documentation: z.string().nullable().describe("Project documentation including README"),
     learningMetrics: z.any().nullable().describe("Learning and optimization metrics"),
     currentTask: z.string().nullable().describe("Current task being processed"),
-    remainingTasks: z.number().nullable().describe("Number of remaining tasks")
+    remainingTasks: z.number().nullable().describe("Number of remaining tasks"),
+    githubToken: z.string().nullable().optional().describe("GitHub token used for this run (supports multi-account)")
 });
 
 // Create initial setup graph (idea → plan → repo setup)
@@ -60,7 +62,8 @@ class AgentOrchestrator {
                 documentation: null,
                 learningMetrics: null,
                 currentTask: null,
-                remainingTasks: null
+                remainingTasks: null,
+                githubToken: input.githubToken ?? null
             };
 
             const result = await this.compiledInitialGraph.invoke(initialState);
@@ -76,14 +79,20 @@ class AgentOrchestrator {
                 }
             }
 
-            // Save repository information to memory
-            if (result.repo) {
+            // Save repository information to memory (only for single-account mode)
+            // For multi-account mode, each account has its own repo, so we don't overwrite memory
+            if (result.repo && !input.githubToken) {
                 try {
                     await memoryService.saveRepositoryInfo(result.repo);
                     console.log(`📁 Saved repository info: ${result.repo.name}`);
                 } catch (error) {
                     console.error("Error saving repository info to memory:", error);
                 }
+            } else if (result.repo && input.githubToken) {
+                // Multi-account mode: log but don't save to shared memory
+                const github = new Octokit({ auth: input.githubToken });
+                const { data: user } = await github.users.getAuthenticated();
+                console.log(`📁 [Account: ${user.login}] Repository: ${result.repo.name} (not saved to shared memory)`);
             }
 
             // Send project start notification
@@ -110,7 +119,7 @@ class AgentOrchestrator {
     }
 
     // Run daily development cycle: generate next task → commit
-    async runDailyCycle() {
+    async runDailyCycle(githubToken = null) {
         try {
             console.log("🔄 Starting daily development cycle...");
 
@@ -181,29 +190,93 @@ class AgentOrchestrator {
             console.log(`   - Next task: ${remainingTasks[0]?.title || 'None'}`);
             console.log(`   - Project spec available: ${!!projectSpec}`);
 
-            // Get repository info from memory or generate new one
-            let repo = await memoryService.getRepositoryInfo();
+            // For multi-account support: each account needs its own repo
+            // If githubToken is provided, we need to find/create repo for that specific account
+            let repo;
+            if (githubToken) {
+                // Multi-account mode: find or create repo for this specific account
+                const github = new Octokit({ auth: githubToken });
+                const { data: user } = await github.users.getAuthenticated();
+                const owner = user.login;
 
-            if (repo) {
-                console.log(`📁 Found repository in memory: ${repo.name}`);
+                // Get repo name from project spec
+                let projectSpecObj;
+                try {
+                    projectSpecObj = typeof projectSpec === 'string' ? JSON.parse(projectSpec) : projectSpec;
+                } catch (e) {
+                    projectSpecObj = { title: "new-project" };
+                }
+
+                const repoName = (projectSpecObj.title || "new-project")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9\s-]/g, '')
+                    .replace(/\s+/g, '-')
+                    .replace(/-+/g, '-')
+                    .replace(/^-|-$/g, '')
+                    .substring(0, 100);
+
+                try {
+                    // Try to get existing repo for this account
+                    const { data: existingRepo } = await github.repos.get({
+                        owner,
+                        repo: repoName
+                    });
+                    repo = {
+                        name: existingRepo.name,
+                        url: existingRepo.html_url
+                    };
+                    console.log(`📁 [Account: ${owner}] Found existing repository: ${repo.name}`);
+                } catch (error) {
+                    if (error.status === 404) {
+                        // Repo doesn't exist for this account, create it
+                        const repoDescription = `A ${projectSpecObj.complexity?.toLowerCase() || 'intermediate'} ${projectSpecObj.type?.toLowerCase() || 'software'} project: ${projectSpecObj.title}.`;
+                        const { data: newRepo } = await github.repos.createForAuthenticatedUser({
+                            name: repoName,
+                            description: repoDescription,
+                            private: false,
+                            auto_init: false,
+                            gitignore_template: 'Node',
+                            license_template: 'mit'
+                        });
+                        repo = {
+                            name: newRepo.name,
+                            url: newRepo.html_url
+                        };
+                        console.log(`📁 [Account: ${owner}] Created new repository: ${repo.name}`);
+                    } else {
+                        throw error;
+                    }
+                }
             } else {
-                // Generate new repository name based on project spec
-                const projectName = projectSpec?.name || "new-project";
-                const repoName = projectName.toLowerCase().replace(/[^a-z0-9]/g, '-');
-                repo = {
-                    name: process.env.GITHUB_REPO_NAME || repoName,
-                    url: process.env.GITHUB_REPO_URL || `https://github.com/yourusername/${repoName}`
-                };
-                console.log(`📁 Generated new repository: ${repo.name}`);
-
-                // Save the new repository info to memory
-                await memoryService.saveRepositoryInfo(repo);
+                // Single-account mode: use repo from memory
+                repo = await memoryService.getRepositoryInfo();
+                if (!repo) {
+                    // Generate new repository name based on project spec
+                    let projectSpecObj;
+                    try {
+                        projectSpecObj = typeof projectSpec === 'string' ? JSON.parse(projectSpec) : projectSpec;
+                    } catch (e) {
+                        projectSpecObj = { title: "new-project" };
+                    }
+                    const repoName = (projectSpecObj.title || "new-project")
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]/g, '-');
+                    repo = {
+                        name: process.env.GITHUB_REPO_NAME || repoName,
+                        url: process.env.GITHUB_REPO_URL || `https://github.com/yourusername/${repoName}`
+                    };
+                    console.log(`📁 Generated new repository: ${repo.name}`);
+                    await memoryService.saveRepositoryInfo(repo);
+                } else {
+                    console.log(`📁 Found repository in memory: ${repo.name}`);
+                }
             }
 
             const state = {
                 projectSpec,
                 plan: { tasks: remainingTasks },
-                repo
+                repo,
+                githubToken: githubToken ?? null
             };
 
             console.log(`🔄 Running development agent for next task...`);
