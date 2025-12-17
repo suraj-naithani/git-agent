@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { getCurrentSchedule, validateSchedule } from "../config/commitSchedule.js";
 import memoryService from "./memoryService.js";
+import { getGitHubTokens } from "../utils/githubTokens.js";
 
 class CronScheduler {
     constructor (orchestrator) {
@@ -54,26 +55,36 @@ class CronScheduler {
                         console.log("🔄 Development continued, proceeding with cycle...");
                     }
 
-                    // Run the daily development cycle
-                    console.log("🔄 Executing scheduled development cycle...");
-                    const result = await this.orchestrator.runDailyCycle();
+                    // Resolve all configured GitHub tokens (multi-account support)
+                    const tokens = getGitHubTokens();
+                    if (!tokens || tokens.length === 0) {
+                        console.log("❌ No GitHub tokens configured. Skipping scheduled development cycle.");
+                        return;
+                    }
 
-                    if (result.status === "Project completed") {
-                        console.log("🎉 Project completed, checking for auto-restart...");
-                        const restarted = await this.handleAutoRestart();
-                        if (!restarted) {
-                            console.log("🛑 Auto-restart not available, stopping cron job");
-                            this.stop();
+                    // Run the daily development cycle for each configured account
+                    for (let i = 0; i < tokens.length; i++) {
+                        const token = tokens[i];
+                        console.log(`🔄 [Cron][Account ${i + 1}] Executing scheduled development cycle...`);
+                        const result = await this.orchestrator.runDailyCycle(token);
+
+                        if (result.status === "Project completed") {
+                            console.log("🎉 Project completed, checking for auto-restart...");
+                            const restarted = await this.handleAutoRestart();
+                            if (!restarted) {
+                                console.log("🛑 Auto-restart not available, stopping cron job");
+                                this.stop();
+                            }
+                        } else if (result.status === "Project not initialized") {
+                            console.log("⚠️ Project not initialized, skipping cycle");
+                        } else if (result.status === "No tasks available") {
+                            console.log("⚠️ No tasks available, skipping cycle");
+                        } else {
+                            console.log(`✅ [Account ${i + 1}] Scheduled cycle completed successfully:`);
+                            console.log(`   - Task: ${result.currentTask || 'Unknown'}`);
+                            console.log(`   - Remaining tasks: ${result.remainingTasks || 'Unknown'}`);
+                            console.log(`   - Files committed: ${result.commits?.length || 0}`);
                         }
-                    } else if (result.status === "Project not initialized") {
-                        console.log("⚠️ Project not initialized, skipping cycle");
-                    } else if (result.status === "No tasks available") {
-                        console.log("⚠️ No tasks available, skipping cycle");
-                    } else {
-                        console.log(`✅ Scheduled cycle completed successfully:`);
-                        console.log(`   - Task: ${result.currentTask || 'Unknown'}`);
-                        console.log(`   - Remaining tasks: ${result.remainingTasks || 'Unknown'}`);
-                        console.log(`   - Files committed: ${result.commits?.length || 0}`);
                     }
                 } catch (error) {
                     console.error("❌ Error in scheduled development cycle:", error);
@@ -150,11 +161,30 @@ class CronScheduler {
                 return { status: "Project completed" };
             }
 
-            // Run the development cycle
-            const result = await this.orchestrator.runDailyCycle();
-            console.log("✅ Manual cycle completed");
+            // Run the development cycle for all configured tokens (multi-account)
+            const tokens = getGitHubTokens();
+            if (!tokens || tokens.length === 0) {
+                console.log("❌ No GitHub tokens configured. Skipping manual development cycle.");
+                return { status: "No GitHub tokens configured" };
+            }
 
-            return result;
+            const results = [];
+            for (let i = 0; i < tokens.length; i++) {
+                const token = tokens[i];
+                console.log(`🔧 [Manual][Account ${i + 1}] Running development cycle...`);
+                const result = await this.orchestrator.runDailyCycle(token);
+                results.push({
+                    tokenIndex: i + 1,
+                    status: result.status,
+                    currentTask: result.currentTask,
+                    remainingTasks: result.remainingTasks,
+                    commits: result.commits
+                });
+            }
+
+            console.log("✅ Manual multi-account cycle completed");
+
+            return { status: "ok", accounts: results };
         } catch (error) {
             console.error("❌ Error in manual cycle:", error);
             throw error;
