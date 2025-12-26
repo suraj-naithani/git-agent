@@ -23,9 +23,84 @@ const validateState = (state, requiredFields = []) => {
     return true;
 };
 
+// Helper function to validate file paths
+const validateFilePath = (filePath) => {
+    if (!filePath || typeof filePath !== 'string') {
+        return { isValid: false, cleaned: null, reason: 'Invalid input type' };
+    }
+
+    // Check for comma-separated paths (common AI mistake)
+    if (filePath.includes(',')) {
+        return { isValid: false, cleaned: null, reason: 'Contains comma-separated paths', hasMultiplePaths: true };
+    }
+
+    // Check for other invalid characters that shouldn't be in file paths
+    const invalidChars = /[<>:"|?*\x00-\x1f]/;
+    if (invalidChars.test(filePath)) {
+        return { isValid: false, cleaned: null, reason: 'Contains invalid characters' };
+    }
+
+    return { isValid: true, cleaned: filePath };
+};
+
+// Helper function to extract first valid path from comma-separated string
+const extractFirstValidPath = (filePath) => {
+    if (!filePath || typeof filePath !== 'string') {
+        return null;
+    }
+
+    // Split by comma and find the first valid path
+    const paths = filePath.split(',').map(p => p.trim()).filter(p => p.length > 0);
+    
+    for (const path of paths) {
+        const validation = validateFilePath(path);
+        if (validation.isValid) {
+            return path;
+        }
+    }
+
+    // If no valid path found, return the first one cleaned up
+    if (paths.length > 0) {
+        return paths[0];
+    }
+
+    return null;
+};
+
 // Helper function to validate and normalize file paths
 const normalizeFilePath = (filePath, taskTitle) => {
-    let normalizedPath = filePath
+    if (!filePath || typeof filePath !== 'string') {
+        console.warn(`⚠️ Invalid filePath provided: ${filePath}, using task title to generate path`);
+        return `src/${taskTitle.toLowerCase().replace(/\s+/g, '-')}.js`;
+    }
+
+    const originalPath = filePath;
+    let normalizedPath = filePath.trim();
+
+    // Check for comma-separated paths (common AI generation mistake)
+    if (normalizedPath.includes(',')) {
+        console.warn(`⚠️ Detected comma-separated paths in filePath: "${originalPath}"`);
+        const extractedPath = extractFirstValidPath(normalizedPath);
+        if (extractedPath) {
+            normalizedPath = extractedPath;
+            console.log(`📝 Extracted first valid path: "${normalizedPath}"`);
+        } else {
+            console.warn(`⚠️ Could not extract valid path from: "${originalPath}", using fallback`);
+            normalizedPath = `src/${taskTitle.toLowerCase().replace(/\s+/g, '-')}.js`;
+            return normalizedPath;
+        }
+    }
+
+    // Validate the path
+    const validation = validateFilePath(normalizedPath);
+    if (!validation.isValid && validation.reason !== 'Contains comma-separated paths') {
+        console.warn(`⚠️ Invalid file path detected: "${originalPath}" (${validation.reason}), using fallback`);
+        normalizedPath = `src/${taskTitle.toLowerCase().replace(/\s+/g, '-')}.js`;
+        return normalizedPath;
+    }
+
+    // Clean up the path
+    normalizedPath = normalizedPath
         .replace(/^\/+/, '') // Remove leading slashes
         .replace(/\/+/g, '/') // Normalize multiple slashes
         .replace(/^\.\//, '') // Remove leading ./
@@ -57,6 +132,11 @@ const normalizeFilePath = (filePath, taskTitle) => {
     // Validate the final path
     if (normalizedPath.length === 0) {
         normalizedPath = `src/${taskTitle.toLowerCase().replace(/\s+/g, '-')}.js`;
+    }
+
+    // Log if path was modified
+    if (originalPath !== normalizedPath && !originalPath.includes(',')) {
+        console.log(`📝 Path normalized: "${originalPath}" -> "${normalizedPath}"`);
     }
 
     return normalizedPath;
@@ -120,6 +200,25 @@ export const developNextTask = async (state) => {
                 commits: [],
                 status: "Project completed - no more tasks"
             };
+        }
+
+        // Validate and clean up filePath in the selected task
+        if (currentTask && currentTask.filePath) {
+            const originalFilePath = currentTask.filePath;
+            
+            // Check for invalid paths and log warnings
+            if (originalFilePath.includes(',')) {
+                console.warn(`⚠️ Task "${currentTask.title}" has comma-separated filePath: "${originalFilePath}"`);
+                console.warn(`⚠️ This will be cleaned up during normalization`);
+            }
+            
+            // Validate the path structure
+            const validation = validateFilePath(originalFilePath);
+            if (!validation.isValid && validation.reason !== 'Contains comma-separated paths') {
+                console.warn(`⚠️ Task "${currentTask.title}" has invalid filePath: "${originalFilePath}" (${validation.reason})`);
+            }
+        } else if (currentTask && !currentTask.filePath) {
+            console.warn(`⚠️ Task "${currentTask.title}" is missing filePath, will generate one from task title`);
         }
 
         console.log(`🔄 Development Agent processing task: ${currentTask.title}`);
@@ -247,7 +346,18 @@ The code must be functional and immediately runnable.`;
             if (error.status === 404) {
                 sha = undefined;
                 console.log(`🆕 File doesn't exist at ${fullPath}, will create new`);
+                // Log additional context for debugging
+                console.log(`🔍 Path context: original="${currentTask.filePath}", normalized="${fullPath}"`);
             } else {
+                // Enhanced error logging for non-404 errors
+                console.error(`❌ Error checking file existence:`, {
+                    status: error.status,
+                    message: error.message,
+                    originalPath: currentTask.filePath,
+                    normalizedPath: fullPath,
+                    repo: state.repo.name,
+                    owner: owner
+                });
                 throw error;
             }
         }
