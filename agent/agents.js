@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { Octokit } from "@octokit/rest";
 import { WebClient } from "@slack/web-api";
 import { StringOutputParser } from "@langchain/core/output_parsers";
@@ -125,7 +126,6 @@ const generateAIReadme = async (projectSpec, repo) => {
 
 
 
-
 export const generateIdea = async (state) => {
     try {
         // Validate input state
@@ -134,28 +134,33 @@ export const generateIdea = async (state) => {
         const model = chatLLM({ json: true });
 
         // Enhanced prompt with better project variety and constraints
+        // Add uniqueness instructions to ensure different projects each time
         const prompt = `You are an expert software architect specializing in diverse project creation. Generate one creative software project idea in JSON format.
-                        ${state.projectName ? `SPECIFIC PROJECT REQUEST: The user wants to create a project called "${state.projectName}". Please create a project specification that matches this name/idea while ensuring it's feasible and implementable.` : `Constraints:
+                        
+                        CRITICAL: This is a COMPLETELY NEW project request. You MUST create a completely unique and different project from ANY previous projects, even if the tech stack or complexity is similar. Be creative and vary the features, approach, and implementation details. DO NOT reuse any previous project names, features, or concepts.
+                        
+                        ${state.projectName ? `SPECIFIC PROJECT REQUEST: The user wants to create a project called "${state.projectName}". Please create a project specification that matches this name/idea while ensuring it's feasible and implementable. IMPORTANT: Even if you've created a project with this name before, create a NEW unique variation with different features, approach, or implementation details.` : `Constraints:
                         - Complexity: ${state.complexity}
                         - Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"}
-                        - Project Variety: Focus on creating unique, innovative concepts`}
-                        ${state.description ? `\nUSER DESCRIPTION: "${state.description}"\nPlease incorporate this description and context into the project specification.` : ''}
+                        - Project Variety: Focus on creating unique, innovative concepts that are DIFFERENT from any previous projects`}
+                        ${state.description ? `\nUSER DESCRIPTION: "${state.description}"\nPlease incorporate this description and context into the project specification, but add unique variations and features.` : ''}
 
                         Requirements:
-                        - ${state.projectName ? `Create a project that matches the name "${state.projectName}"` : 'Ensure the project is feasible and implementable'}
-                        - ${state.projectName ? 'Make the project name match exactly what the user requested' : 'Select appropriate tech stack for the complexity level'}
-                        - ${state.description ? 'Incorporate the user\'s description and context into the project features and description' : ''}
-                        - Create engaging features that demonstrate technical skills
+                        - ${state.projectName ? `Create a project that matches the name "${state.projectName}" but with unique features and implementation` : 'Ensure the project is feasible and implementable and COMPLETELY UNIQUE'}
+                        - ${state.projectName ? 'Make the project name match exactly what the user requested, but add unique features and variations' : 'Select appropriate tech stack for the complexity level'}
+                        - ${state.description ? 'Incorporate the user\'s description and context into the project features and description, but add unique twists' : ''}
+                        - Create engaging features that demonstrate technical skills (make them UNIQUE and different from typical projects)
                         - Provide realistic timeline estimates
                         - Choose modern, relevant technologies that work well together
                         - Consider the project's specific needs and requirements
+                        - IMPORTANT: Add unique variations, different features, or alternative approaches to ensure this project is distinct
 
-                        ${state.projectName ? `IMPORTANT: The project title MUST be exactly "${state.projectName}" as requested by the user.` : ''}
-                        ${state.description ? `IMPORTANT: The project description and features MUST reflect the user's description: "${state.description}"` : ''}
+                        ${state.projectName ? `IMPORTANT: The project title MUST be exactly "${state.projectName}" as requested by the user, but the features and implementation MUST be unique and different.` : ''}
+                        ${state.description ? `IMPORTANT: The project description and features MUST reflect the user's description: "${state.description}", but add unique variations.` : ''}
 
                         Return ONLY valid JSON in this exact format:
                         {
-                          "title": "${state.projectName || 'Project Name'}",
+                          "title": "${state.projectName || 'Unique-Project'}",
                           "type": "Web App | CLI Tool | API | Library | Mobile App | Data Processing | Automation Script",
                           "complexity": "Beginner | Intermediate | Advanced",
                           "techStack": ["technology1", "technology2"],
@@ -166,11 +171,22 @@ export const generateIdea = async (state) => {
                         }`;
 
         const response = await model.invoke([["human", prompt]]);
-        const cleaned = response.content.replace(/```json|```/g, "").trim();
+        let cleaned = response.content.replace(/```json|```/g, "").trim();
 
-        // Validate JSON response
+        // Validate JSON response and clean title to remove any unique identifiers
+        let projectSpec;
         try {
-            JSON.parse(cleaned);
+            projectSpec = JSON.parse(cleaned);
+            
+            // Remove any unique identifier suffixes from title (e.g., "-c92945ab", "-1234567890", etc.)
+            if (projectSpec.title) {
+                // Remove patterns like "-abc12345" or "-1234567890-1234" from the end
+                projectSpec.title = projectSpec.title.replace(/-[a-f0-9]{8,}(?:-\d+)*$/i, '');
+                // Also remove if it matches UUID pattern at the end
+                projectSpec.title = projectSpec.title.replace(/-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i, '');
+            }
+            
+            cleaned = JSON.stringify(projectSpec);
         } catch (parseError) {
             logError('generateIdea', parseError, { response: response.content });
             throw new Error('Invalid JSON response from model');
@@ -180,11 +196,11 @@ export const generateIdea = async (state) => {
     } catch (error) {
         logError('generateIdea', error, { state });
 
-        // Fallback response - maintains exact same output format
+        // Fallback response - maintains exact same output format with simple name
         return {
             ...state,
             projectSpec: JSON.stringify({
-                title: state.projectName || "Random Project",
+                title: state.projectName || "Random-Project",
                 type: "Web App",
                 complexity: state.complexity,
                 techStack: state.techConstraints || ["Node.js"],
@@ -301,7 +317,7 @@ export const manageRepository = async (state) => {
             return { ...state, repo: { name: "mock-repo", url: "http://mock-repo.com" } };
         }
 
-        // Enhanced repository name generation
+        // Enhanced repository name generation - use project title directly (already unique from controller)
         const repoName = projectSpec.title
             .toLowerCase()
             .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
@@ -330,30 +346,51 @@ export const manageRepository = async (state) => {
         const { data: user } = await github.users.getAuthenticated();
         const owner = user.login;
 
+        // Try to create repository with simple name, append number if it exists
         let repo;
-        try {
-            // Check if repository already exists
-            const { data: existingRepo } = await github.repos.get({
-                owner,
-                repo: repoName
-            });
-            console.log(`Repository ${repoName} already exists. Using existing repository.`);
-            repo = existingRepo;
-        } catch (error) {
-            if (error.status === 404) {
-                // Create new repository
-                repo = (await github.repos.createForAuthenticatedUser({
-                    name: repoName,
-                    description: repoDescription,
-                    private: false,
-                    auto_init: false, // Don't auto-initialize to avoid conflicts
-                    gitignore_template: 'Node', // Add appropriate .gitignore
-                    license_template: 'mit' // Add MIT license
-                })).data;
-                console.log(`Created new repository: ${repoName}`);
-            } else {
-                throw error;
+        let finalRepoName = repoName;
+        let attempt = 0;
+        const maxAttempts = 10;
+        
+        while (attempt < maxAttempts) {
+            try {
+                // Check if repository already exists
+                try {
+                    await github.repos.get({ owner, repo: finalRepoName });
+                    // Repository exists, try with number suffix
+                    attempt++;
+                    finalRepoName = `${repoName}-${attempt}`;
+                    console.log(`⚠️ Repository "${repoName}" exists, trying "${finalRepoName}"...`);
+                    continue;
+                } catch (checkError) {
+                    if (checkError.status === 404) {
+                        // Repository doesn't exist, we can create it
+                        break;
+                    } else {
+                        throw checkError;
+                    }
+                }
+            } catch (checkError) {
+                // If check fails for other reason, try creating anyway
+                break;
             }
+        }
+
+        // Create the repository
+        try {
+            repo = (await github.repos.createForAuthenticatedUser({
+                name: finalRepoName,
+                description: repoDescription,
+                private: false,
+                auto_init: false, // Don't auto-initialize to avoid conflicts
+                gitignore_template: 'Node', // Add appropriate .gitignore
+                license_template: 'mit' // Add MIT license
+            })).data;
+            console.log(`✅ Created new repository: ${finalRepoName}`);
+        } catch (error) {
+            // If repository creation fails, throw error
+            logError('manageRepository', error, { repoName: finalRepoName, state });
+            throw error;
         }
 
         // Generate README content using AI for better quality
@@ -374,7 +411,7 @@ export const manageRepository = async (state) => {
 
         await github.rest.repos.createOrUpdateFileContents({
             owner,
-            repo: repoName,
+            repo: finalRepoName,
             path: "README.md",
             message: readmeSha ? "Update README with project details" : "Initial commit: Add comprehensive README",
             content: Buffer.from(readmeContent).toString("base64"),

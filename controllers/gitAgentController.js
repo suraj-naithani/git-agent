@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "crypto";
 import AgentOrchestrator from "../agent/workflow.js";
 import memoryService from "../services/memoryService.js";
 import { cronScheduler } from "../services/serviceManager.js";
@@ -24,27 +25,36 @@ const gitAgent = async (req, res) => {
             });
         }
 
-        // Check if this is a new project or continuing existing one
-        const isInitialized = await memoryService.isProjectInitialized();
-        const isCompleted = await memoryService.isProjectCompleted();
-
-        // If there's a previous project (initialized but not completed), clear memory for new project
-        if (isInitialized && !isCompleted) {
-            console.log("🔄 Previous project in progress. Clearing memory to start fresh project...");
-            await memoryService.clearMemory();
-            await memoryService.clearRepositoryInfo();
-            console.log("✅ Memory and repository info cleared for new project");
+        // STEP 1: Stop cron scheduler completely to prevent it from using old project data
+        console.log("🛑 Stopping any running cron scheduler...");
+        try {
+            cronScheduler.stop();
+            console.log("✅ Cron scheduler stopped");
+        } catch (error) {
+            console.log("⚠️ Cron scheduler was not running or error stopping:", error.message);
         }
 
-        if (isCompleted) {
-            return res.status(200).json({
-                success: true,
-                data: { status: "Project completed" },
-                message: 'Project is already completed'
-            });
+        // STEP 2: Clear ALL memory and state completely (including initial params)
+        console.log("🧹 Clearing ALL previous project state, memory, and repository info...");
+        await memoryService.clearMemory(false); // Don't preserve initial params - we want completely fresh
+        await memoryService.clearRepositoryInfo();
+        await memoryService.clearInitialProjectParams();
+        console.log("✅ All memory, state, and repository info completely cleared");
+
+        // STEP 3: Use clean project name without any unique identifiers
+        // The uniqueness comes from clearing all memory and starting fresh
+        const modifiedInput = {
+            ...input,
+            projectName: input.projectName // Keep original name as-is, no modifications
+        };
+
+        console.log(`🆕 Starting completely new project`);
+        if (input.projectName) {
+            console.log(`   Project name: "${input.projectName}"`);
         }
 
-        const isNewProject = !isInitialized;
+        // Always treat this as a new project
+        const isNewProject = true;
 
         const config = {
             complexityDistribution: ['beginner', 'intermediate', 'advanced'],
@@ -61,27 +71,31 @@ const gitAgent = async (req, res) => {
             let result;
             if (isNewProject) {
                 // First run for this project: initialize project (idea → plan → repo setup)
-                console.log(`🚀 [Account ${i + 1}] Running initial project setup cycle...`);
+                console.log(`🚀 [Account ${i + 1}] Running initial project setup cycle with unique project...`);
 
                 // Save initial project parameters for auto-restart (only once, on first account)
+                // Use modified input with unique name
                 if (i === 0) {
-                    await memoryService.saveInitialProjectParams(input);
+                    await memoryService.saveInitialProjectParams(modifiedInput);
                     console.log("✅ Initial project parameters saved for auto-restart");
                 }
 
                 result = await orchestrator.runInitialCycle({
-                    projectName: input.projectName,
-                    description: input.description,
-                    complexity: input.complexity,
-                    techConstraints: input.techConstraints,
+                    projectName: modifiedInput.projectName,
+                    description: modifiedInput.description,
+                    complexity: modifiedInput.complexity,
+                    techConstraints: modifiedInput.techConstraints,
                     githubToken: token
                 });
 
                 // Start cron scheduler only after successful project initialization (once)
+                // This ensures the scheduler uses the NEW project data, not old data
                 if (i === 0 && result.projectSpec && result.plan && result.repo) {
                     try {
+                        // Wait a moment to ensure all state is saved
+                        await new Promise(resolve => setTimeout(resolve, 500));
                         await cronScheduler.start();
-                        console.log("✅ Cron scheduler started after project initialization");
+                        console.log("✅ Cron scheduler started with NEW project data");
                     } catch (error) {
                         console.error("❌ Failed to start cron scheduler:", error);
                     }
