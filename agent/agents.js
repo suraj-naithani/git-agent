@@ -52,7 +52,7 @@ const generateAIReadme = async (projectSpec, repo) => {
                             6. **PRODUCTION READY**: Make it suitable for professional GitHub repositories
                             
                             MANDATORY SECTIONS (in this order):
-                            1. **Project Title** - With badges (build status, version, license, etc.)
+                            1. **Project Title** - With badges (build status, version, etc.)
                             2. **Project Description** - Clear, concise overview
                             3. **Features** - Bullet points of key features
                             4. **Tech Stack** - Organized by frontend/backend/database/etc.
@@ -62,8 +62,6 @@ const generateAIReadme = async (projectSpec, repo) => {
                             8. **Testing** - How to run tests
                             9. **Deployment** - Deployment instructions
                             10. **Contributing** - Guidelines for contributors
-                            11. **License** - License information
-                            12. **Acknowledgments** - Credits and thanks
                             
                             TECH STACK ORGANIZATION:
                             - Group technologies logically (Frontend, Backend, Database, DevOps, etc.)
@@ -383,8 +381,7 @@ export const manageRepository = async (state) => {
                 description: repoDescription,
                 private: false,
                 auto_init: false, // Don't auto-initialize to avoid conflicts
-                gitignore_template: 'Node', // Add appropriate .gitignore
-                license_template: 'mit' // Add MIT license
+                gitignore_template: 'Node' // Add appropriate .gitignore
             })).data;
             console.log(`✅ Created new repository: ${finalRepoName}`);
         } catch (error) {

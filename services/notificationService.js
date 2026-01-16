@@ -198,6 +198,91 @@ class NotificationService {
         return await this.sendSlackNotification(messageText, attachments);
     }
 
+    // Send commit summary notification for all accounts
+    async sendCommitSummary(commitResults) {
+        if (!commitResults || commitResults.length === 0) {
+            console.log("⚠️ No commit results to summarize");
+            return false;
+        }
+
+        const successfulAccounts = commitResults.filter(r => r.success);
+        const failedAccounts = commitResults.filter(r => !r.success);
+        const totalAccounts = commitResults.length;
+
+        const messageText = `📊 Daily Commit Summary - ${new Date().toLocaleDateString()}`;
+
+        // Build fields for successful accounts
+        const successFields = [];
+        if (successfulAccounts.length > 0) {
+            successfulAccounts.forEach(result => {
+                let value = `Status: ${result.status}`;
+                if (result.taskInfo) {
+                    value += `\nTask: ${result.taskInfo.task}`;
+                    value += `\nRemaining: ${result.taskInfo.remainingTasks}`;
+                    value += `\nFiles: ${result.taskInfo.filesCommitted}`;
+                } else if (result.message) {
+                    value += `\n${result.message}`;
+                }
+                successFields.push({
+                    title: `✅ ${result.accountName}`,
+                    value: value,
+                    short: true
+                });
+            });
+        }
+
+        // Build fields for failed accounts
+        const failureFields = [];
+        if (failedAccounts.length > 0) {
+            failedAccounts.forEach(result => {
+                let value = `Status: ${result.status}`;
+                if (result.message) {
+                    value += `\n${result.message}`;
+                }
+                failureFields.push({
+                    title: `❌ ${result.accountName}`,
+                    value: value,
+                    short: true
+                });
+            });
+        }
+
+        const attachments = [
+            {
+                color: failedAccounts.length === 0 ? "#36a64f" : (successfulAccounts.length > 0 ? "#ffa500" : "#ff4757"),
+                title: "Commit Results Summary",
+                fields: [
+                    {
+                        title: "Total Accounts",
+                        value: totalAccounts.toString(),
+                        short: true
+                    },
+                    {
+                        title: "Successful",
+                        value: `${successfulAccounts.length} ✅`,
+                        short: true
+                    },
+                    {
+                        title: "Failed",
+                        value: `${failedAccounts.length} ❌`,
+                        short: true
+                    },
+                    {
+                        title: "Success Rate",
+                        value: `${Math.round((successfulAccounts.length / totalAccounts) * 100)}%`,
+                        short: true
+                    },
+                    ...successFields,
+                    ...failureFields
+                ],
+                footer: "AI Development Agent - Daily Scheduler",
+                ts: Math.floor(Date.now() / 1000)
+            }
+        ];
+
+        return await this.sendSlackNotification(messageText, attachments);
+    }
+
     // Check if notifications are enabled
     isNotificationEnabled() {
         return this.isEnabled;

@@ -235,8 +235,7 @@ class AgentOrchestrator {
                             description: repoDescription,
                             private: false,
                             auto_init: false,
-                            gitignore_template: 'Node',
-                            license_template: 'mit'
+                            gitignore_template: 'Node'
                         });
                         repo = {
                             name: newRepo.name,

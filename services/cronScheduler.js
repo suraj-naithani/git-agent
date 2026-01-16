@@ -2,6 +2,8 @@ import cron from "node-cron";
 import { getCurrentSchedule, validateSchedule } from "../config/commitSchedule.js";
 import memoryService from "./memoryService.js";
 import { getGitHubTokens } from "../utils/githubTokens.js";
+import notificationService from "./notificationService.js";
+import { Octokit } from "@octokit/rest";
 
 class CronScheduler {
     constructor (orchestrator) {
@@ -62,29 +64,105 @@ class CronScheduler {
                         return;
                     }
 
+                    // Track commit results for each account
+                    const commitResults = [];
+                    let shouldStopScheduler = false;
+
                     // Run the daily development cycle for each configured account
                     for (let i = 0; i < tokens.length; i++) {
                         const token = tokens[i];
-                        console.log(`🔄 [Cron][Account ${i + 1}] Executing scheduled development cycle...`);
-                        const result = await this.orchestrator.runDailyCycle(token);
-
-                        if (result.status === "Project completed") {
-                            console.log("🎉 Project completed, checking for auto-restart...");
-                            const restarted = await this.handleAutoRestart();
-                            if (!restarted) {
-                                console.log("🛑 Auto-restart not available, stopping cron job");
-                                this.stop();
-                            }
-                        } else if (result.status === "Project not initialized") {
-                            console.log("⚠️ Project not initialized, skipping cycle");
-                        } else if (result.status === "No tasks available") {
-                            console.log("⚠️ No tasks available, skipping cycle");
-                        } else {
-                            console.log(`✅ [Account ${i + 1}] Scheduled cycle completed successfully:`);
-                            console.log(`   - Task: ${result.currentTask || 'Unknown'}`);
-                            console.log(`   - Remaining tasks: ${result.remainingTasks || 'Unknown'}`);
-                            console.log(`   - Files committed: ${result.commits?.length || 0}`);
+                        let accountName = `Account ${i + 1}`;
+                        
+                        // Get account name from GitHub
+                        try {
+                            const github = new Octokit({ auth: token });
+                            const { data: user } = await github.users.getAuthenticated();
+                            accountName = user.login;
+                        } catch (error) {
+                            console.warn(`⚠️ Could not get account name for token ${i + 1}:`, error.message);
                         }
+
+                        console.log(`🔄 [Cron][${accountName}] Executing scheduled development cycle...`);
+                        
+                        let commitSuccess = false;
+                        let errorMessage = null;
+                        let taskInfo = null;
+
+                        try {
+                            const result = await this.orchestrator.runDailyCycle(token);
+
+                            if (result.status === "Project completed") {
+                                console.log(`🎉 [${accountName}] Project completed, checking for auto-restart...`);
+                                const restarted = await this.handleAutoRestart();
+                                if (!restarted) {
+                                    console.log(`⚠️ [${accountName}] Auto-restart not available, will stop scheduler after all accounts processed`);
+                                    shouldStopScheduler = true;
+                                }
+                                commitResults.push({
+                                    accountName,
+                                    success: true,
+                                    status: "Project completed",
+                                    message: "Project completed successfully"
+                                });
+                            } else if (result.status === "Project not initialized") {
+                                console.log(`⚠️ [${accountName}] Project not initialized, skipping cycle`);
+                                commitResults.push({
+                                    accountName,
+                                    success: false,
+                                    status: "Project not initialized",
+                                    message: "Project not initialized"
+                                });
+                            } else if (result.status === "No tasks available") {
+                                console.log(`⚠️ [${accountName}] No tasks available, skipping cycle`);
+                                commitResults.push({
+                                    accountName,
+                                    success: false,
+                                    status: "No tasks available",
+                                    message: "No tasks available"
+                                });
+                            } else {
+                                commitSuccess = true;
+                                taskInfo = {
+                                    task: result.currentTask || 'Unknown',
+                                    remainingTasks: result.remainingTasks || 'Unknown',
+                                    filesCommitted: result.commits?.length || 0
+                                };
+                                console.log(`✅ [${accountName}] Scheduled cycle completed successfully:`);
+                                console.log(`   - Task: ${taskInfo.task}`);
+                                console.log(`   - Remaining tasks: ${taskInfo.remainingTasks}`);
+                                console.log(`   - Files committed: ${taskInfo.filesCommitted}`);
+                                
+                                commitResults.push({
+                                    accountName,
+                                    success: true,
+                                    status: "Success",
+                                    message: `Task completed: ${taskInfo.task}`,
+                                    taskInfo
+                                });
+                            }
+                        } catch (error) {
+                            errorMessage = error.message;
+                            console.error(`❌ [${accountName}] Error during development cycle:`, error);
+                            commitResults.push({
+                                accountName,
+                                success: false,
+                                status: "Error",
+                                message: errorMessage
+                            });
+                        }
+                    }
+
+                    // Send summary notification to Slack after all accounts are processed
+                    try {
+                        await notificationService.sendCommitSummary(commitResults);
+                    } catch (notifyError) {
+                        console.warn("⚠️ Failed to send commit summary notification:", notifyError.message);
+                    }
+
+                    // Stop scheduler if needed (after processing all accounts and sending summary)
+                    if (shouldStopScheduler) {
+                        console.log("🛑 Stopping cron scheduler as project completed and auto-restart not available");
+                        this.stop();
                     }
                 } catch (error) {
                     console.error("❌ Error in scheduled development cycle:", error);

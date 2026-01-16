@@ -14,12 +14,12 @@ export const commitScheduleConfig = {
         description: "Commit every 1 minutes for development"
     },
 
-    // Production mode: commit at random times between 9 AM and 9 PM
+    // Production mode: commit daily at 2:00 PM
     production: {
         mode: "production",
         interval: "daily",
-        cronExpression: generateRandomCronBetween(9, 21),
-        description: "Commit daily at random time between 9:00 AM and 9:00 PM"
+        cronExpression: "0 14 * * *",
+        description: "Commit daily at 2:00 PM"
     }
 };
 
