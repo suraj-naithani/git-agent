@@ -198,6 +198,176 @@ class NotificationService {
         return await this.sendSlackNotification(messageText, attachments);
     }
 
+    // Send initialization start notification
+    async sendInitializationStartNotification(initData) {
+        const { accountName, projectName, complexity, techStack } = initData;
+
+        const messageText = `🚀 Starting project initialization for *${accountName}*`;
+
+        const attachments = [
+            {
+                color: "#3498db",
+                title: "Initialization Started",
+                fields: [
+                    {
+                        title: "Account",
+                        value: accountName,
+                        short: true
+                    },
+                    {
+                        title: "Project Name",
+                        value: projectName,
+                        short: true
+                    },
+                    {
+                        title: "Complexity",
+                        value: complexity,
+                        short: true
+                    },
+                    {
+                        title: "Tech Stack",
+                        value: techStack.join(', '),
+                        short: false
+                    }
+                ],
+                footer: "AI Development Agent",
+                ts: Math.floor(Date.now() / 1000)
+            }
+        ];
+
+        return await this.sendSlackNotification(messageText, attachments);
+    }
+
+    // Send initialization summary notification for all accounts
+    async sendInitializationSummary(initializationResults) {
+        if (!initializationResults || initializationResults.length === 0) {
+            console.log("⚠️ No initialization results to summarize");
+            return false;
+        }
+
+        const successfulAccounts = initializationResults.filter(r => r.success);
+        const failedAccounts = initializationResults.filter(r => !r.success);
+        const totalAccounts = initializationResults.length;
+
+        const messageText = `📋 Project Initialization Summary - ${new Date().toLocaleDateString()}`;
+
+        // Build fields for successful accounts
+        const successFields = [];
+        if (successfulAccounts.length > 0) {
+            successfulAccounts.forEach(result => {
+                let value = `Status: ${result.status}`;
+                if (result.repo) {
+                    value += `\nRepository: ${result.repo.name}`;
+                    value += `\nURL: ${result.repo.url}`;
+                }
+                if (result.projectName) {
+                    value += `\nProject: ${result.projectName}`;
+                }
+                successFields.push({
+                    title: `✅ ${result.accountName}`,
+                    value: value,
+                    short: true
+                });
+            });
+        }
+
+        // Build fields for failed accounts
+        const failureFields = [];
+        if (failedAccounts.length > 0) {
+            failedAccounts.forEach(result => {
+                let value = `Status: ${result.status}`;
+                if (result.message) {
+                    value += `\n${result.message}`;
+                }
+                failureFields.push({
+                    title: `❌ ${result.accountName}`,
+                    value: value,
+                    short: true
+                });
+            });
+        }
+
+        const attachments = [
+            {
+                color: failedAccounts.length === 0 ? "#36a64f" : (successfulAccounts.length > 0 ? "#ffa500" : "#ff4757"),
+                title: "Initialization Results Summary",
+                fields: [
+                    {
+                        title: "Total Accounts",
+                        value: totalAccounts.toString(),
+                        short: true
+                    },
+                    {
+                        title: "Successful",
+                        value: `${successfulAccounts.length} ✅`,
+                        short: true
+                    },
+                    {
+                        title: "Failed",
+                        value: `${failedAccounts.length} ❌`,
+                        short: true
+                    },
+                    {
+                        title: "Success Rate",
+                        value: `${Math.round((successfulAccounts.length / totalAccounts) * 100)}%`,
+                        short: true
+                    },
+                    ...successFields,
+                    ...failureFields
+                ],
+                footer: "AI Development Agent - Project Initialization",
+                ts: Math.floor(Date.now() / 1000)
+            }
+        ];
+
+        return await this.sendSlackNotification(messageText, attachments);
+    }
+
+    // Send auto-restart notification
+    async sendAutoRestartNotification(restartData) {
+        const { projectName, complexity, techStack, repo } = restartData;
+
+        const messageText = `🔄 Auto-Restart: New project initialized`;
+
+        const attachments = [
+            {
+                color: "#9b59b6",
+                title: "Auto-Restart Successful",
+                fields: [
+                    {
+                        title: "Project Name",
+                        value: projectName || "AI Generated Project",
+                        short: true
+                    },
+                    {
+                        title: "Complexity",
+                        value: complexity || "beginner",
+                        short: true
+                    },
+                    {
+                        title: "Tech Stack",
+                        value: techStack?.join(', ') || "Node.js",
+                        short: false
+                    },
+                    {
+                        title: "Repository",
+                        value: repo ? `${repo.name} (${repo.url})` : "Not created yet",
+                        short: false
+                    },
+                    {
+                        title: "Reason",
+                        value: "Previous project completed successfully",
+                        short: false
+                    }
+                ],
+                footer: "AI Development Agent - Auto-Restart",
+                ts: Math.floor(Date.now() / 1000)
+            }
+        ];
+
+        return await this.sendSlackNotification(messageText, attachments);
+    }
+
     // Send commit summary notification for all accounts
     async sendCommitSummary(commitResults) {
         if (!commitResults || commitResults.length === 0) {

@@ -126,90 +126,134 @@ const generateAIReadme = async (projectSpec, repo) => {
 
 export const generateIdea = async (state) => {
     try {
-        // Validate input state
-        validateState(state, ['complexity']);
-
-        const model = chatLLM({ json: true });
-
-        // Enhanced prompt with better project variety and constraints
-        // Add uniqueness instructions to ensure different projects each time
-        const prompt = `You are an expert software architect specializing in diverse project creation. Generate one creative software project idea in JSON format.
-                        
-                        CRITICAL: This is a COMPLETELY NEW project request. You MUST create a completely unique and different project from ANY previous projects, even if the tech stack or complexity is similar. Be creative and vary the features, approach, and implementation details. DO NOT reuse any previous project names, features, or concepts.
-                        
-                        ${state.projectName ? `SPECIFIC PROJECT REQUEST: The user wants to create a project called "${state.projectName}". Please create a project specification that matches this name/idea while ensuring it's feasible and implementable. IMPORTANT: Even if you've created a project with this name before, create a NEW unique variation with different features, approach, or implementation details.` : `Constraints:
-                        - Complexity: ${state.complexity}
-                        - Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"}
-                        - Project Variety: Focus on creating unique, innovative concepts that are DIFFERENT from any previous projects`}
-                        ${state.description ? `\nUSER DESCRIPTION: "${state.description}"\nPlease incorporate this description and context into the project specification, but add unique variations and features.` : ''}
-
-                        Requirements:
-                        - ${state.projectName ? `Create a project that matches the name "${state.projectName}" but with unique features and implementation` : 'Ensure the project is feasible and implementable and COMPLETELY UNIQUE'}
-                        - ${state.projectName ? 'Make the project name match exactly what the user requested, but add unique features and variations' : 'Select appropriate tech stack for the complexity level'}
-                        - ${state.description ? 'Incorporate the user\'s description and context into the project features and description, but add unique twists' : ''}
-                        - Create engaging features that demonstrate technical skills (make them UNIQUE and different from typical projects)
-                        - Provide realistic timeline estimates
-                        - Choose modern, relevant technologies that work well together
-                        - Consider the project's specific needs and requirements
-                        - IMPORTANT: Add unique variations, different features, or alternative approaches to ensure this project is distinct
-
-                        ${state.projectName ? `IMPORTANT: The project title MUST be exactly "${state.projectName}" as requested by the user, but the features and implementation MUST be unique and different.` : ''}
-                        ${state.description ? `IMPORTANT: The project description and features MUST reflect the user's description: "${state.description}", but add unique variations.` : ''}
-
-                        Return ONLY valid JSON in this exact format:
-                        {
-                          "title": "${state.projectName || 'Unique-Project'}",
-                          "type": "Web App | CLI Tool | API | Library | Mobile App | Data Processing | Automation Script",
-                          "complexity": "Beginner | Intermediate | Advanced",
-                          "techStack": ["technology1", "technology2"],
-                          "features": ["feature1", "feature2", "feature3"],
-                          "timeline": "estimated duration",
-                          "description": "Brief project description",
-                          "targetAudience": "Who would use this project"
-                        }`;
-
-        const response = await model.invoke([["human", prompt]]);
-        let cleaned = response.content.replace(/```json|```/g, "").trim();
-
-        // Validate JSON response and clean title to remove any unique identifiers
-        let projectSpec;
-        try {
-            projectSpec = JSON.parse(cleaned);
-            
-            // Remove any unique identifier suffixes from title (e.g., "-c92945ab", "-1234567890", etc.)
-            if (projectSpec.title) {
-                // Remove patterns like "-abc12345" or "-1234567890-1234" from the end
-                projectSpec.title = projectSpec.title.replace(/-[a-f0-9]{8,}(?:-\d+)*$/i, '');
-                // Also remove if it matches UUID pattern at the end
-                projectSpec.title = projectSpec.title.replace(/-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i, '');
-            }
-            
-            cleaned = JSON.stringify(projectSpec);
-        } catch (parseError) {
-            logError('generateIdea', parseError, { response: response.content });
-            throw new Error('Invalid JSON response from model');
+      validateState(state, ["complexity"]);
+  
+      const model = chatLLM({
+        json: true,
+        temperature: 0.9,
+        top_p: 0.95
+      });
+  
+      const previousProjects = state.previousProjects || [];
+      const previousList = previousProjects.length
+        ? previousProjects.map(p => `- ${p}`).join("\n")
+        : "- None";
+  
+      const prompt = `
+  You are a senior product architect and startup idea generator.
+  
+  CRITICAL RULES:
+  - This MUST be a completely NEW and DIFFERENT project.
+  - DO NOT repeat, clone, re-skin, or slightly modify any previous project.
+  - DO NOT generate idea boards, mind maps, brainstorming tools, note tools, or visual thinking tools.
+  - DO NOT use numeric suffixes like -1, -2, v2, pro, plus, new.
+  
+  Previously generated projects (DO NOT repeat or resemble):
+  ${previousList}
+  
+  DIVERSITY RULES (MANDATORY):
+  Pick EXACTLY ONE domain from below that is DIFFERENT from previous projects:
+  - Healthcare
+  - FinTech
+  - EdTech
+  - DevOps
+  - Cybersecurity
+  - Gaming
+  - E-commerce
+  - Logistics
+  - HR / Recruitment
+  - LegalTech
+  - Real Estate
+  - IoT
+  - Social Media
+  - Marketing Automation
+  - Customer Support
+  - Analytics / BI
+  
+  CONCEPT MUTATION RULE:
+  The core problem, target user, and primary workflow MUST be different from any previous project.
+  
+  ${state.projectName ? `
+  SPECIFIC PROJECT REQUEST:
+  User wants project name: "${state.projectName}"
+  You MUST respect the name but still create a UNIQUE concept.
+  ` : `
+  No specific project name. You must invent a fresh, original project.
+  `}
+  
+  Constraints:
+  - Complexity: ${state.complexity}
+  - Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"}
+  
+  ${state.description ? `
+  USER DESCRIPTION:
+  "${state.description}"
+  Incorporate it but add unique twists and features.
+  ` : ""}
+  
+  NAMING RULE:
+  - If the name feels similar to a past project, CHANGE IT.
+  - Do NOT append numbers or minor variations.
+  
+  Return ONLY valid JSON in this exact format:
+  {
+    "title": "Project Name",
+    "type": "Web App | CLI Tool | API | Library | Mobile App | Data Processing | Automation Script",
+    "complexity": "Beginner | Intermediate | Advanced",
+    "techStack": ["technology1", "technology2"],
+    "features": ["feature1", "feature2", "feature3"],
+    "timeline": "estimated duration",
+    "description": "Brief project description",
+    "targetAudience": "Who would use this project"
+  }
+  `;
+  
+      const response = await model.invoke([["human", prompt]]);
+      let cleaned = response.content.replace(/```json|```/g, "").trim();
+  
+      let projectSpec;
+      try {
+        projectSpec = JSON.parse(cleaned);
+  
+        // HARD SAFETY: remove numeric suffixes or versions
+        if (projectSpec.title) {
+          projectSpec.title = projectSpec.title
+            .replace(/\s*-\s*\d+$/i, "")
+            .replace(/\s*v\d+$/i, "")
+            .replace(/\s*(pro|plus|new)$/i, "")
+            .trim();
         }
-
-        return { ...state, projectSpec: cleaned };
+  
+        cleaned = JSON.stringify(projectSpec, null, 2);
+      } catch (err) {
+        console.error("❌ JSON Parse Error:", response.content);
+        throw new Error("Invalid JSON response from model");
+      }
+  
+      return {
+        ...state,
+        projectSpec: cleaned,
+        previousProjects: [...previousProjects, projectSpec.title]
+      };
     } catch (error) {
-        logError('generateIdea', error, { state });
-
-        // Fallback response - maintains exact same output format with simple name
-        return {
-            ...state,
-            projectSpec: JSON.stringify({
-                title: state.projectName || "Random-Project",
-                type: "Web App",
-                complexity: state.complexity,
-                techStack: state.techConstraints || ["Node.js"],
-                features: ["Feature 1", "Feature 2"],
-                timeline: "2 weeks",
-                description: state.description || (state.projectName ? `Fallback project for ${state.projectName} due to error` : "Fallback project due to error"),
-                targetAudience: "Developers"
-            })
-        };
+      console.error("❌ generateIdea error:", error);
+  
+      return {
+        ...state,
+        projectSpec: JSON.stringify({
+          title: "Unique System Tool",
+          type: "Web App",
+          complexity: state.complexity,
+          techStack: state.techConstraints || ["Node.js"],
+          features: ["Core feature", "Secondary feature"],
+          timeline: "2 weeks",
+          description: "Fallback unique project due to generation error",
+          targetAudience: "Developers"
+        })
+      };
     }
-};
+  };
+  
 
 export const planProject = async (state) => {
     try {

@@ -326,6 +326,19 @@ class CronScheduler {
                 if (result.projectSpec && result.plan && result.repo) {
                     console.log("✅ Auto-restart successful: New project initialized");
                     console.log(`   - New repository: ${result.repo.name}`);
+                    
+                    // Send auto-restart notification
+                    try {
+                        await notificationService.sendAutoRestartNotification({
+                            projectName: initialParams.projectName || "AI Generated Project",
+                            complexity: initialParams.complexity || "beginner",
+                            techStack: initialParams.techConstraints || ["Node.js"],
+                            repo: result.repo
+                        });
+                    } catch (notifyError) {
+                        console.warn("⚠️ Failed to send auto-restart notification:", notifyError.message);
+                    }
+                    
                     // Cron scheduler is already running, so it will continue with the new project
                     return true;
                 } else {
