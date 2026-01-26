@@ -124,133 +124,222 @@ const generateAIReadme = async (projectSpec, repo) => {
 
 
 
-export const generateIdea = async (state) => {
-    try {
-      validateState(state, ["complexity"]);
-  
-      const model = chatLLM({
-        json: true,
-        temperature: 0.9,
-        top_p: 0.95
-      });
-  
-      const previousProjects = state.previousProjects || [];
-      const previousList = previousProjects.length
-        ? previousProjects.map(p => `- ${p}`).join("\n")
-        : "- None";
-  
-      const prompt = `
-  You are a senior product architect and startup idea generator.
-  
-  CRITICAL RULES:
-  - This MUST be a completely NEW and DIFFERENT project.
-  - DO NOT repeat, clone, re-skin, or slightly modify any previous project.
-  - DO NOT generate idea boards, mind maps, brainstorming tools, note tools, or visual thinking tools.
-  - DO NOT use numeric suffixes like -1, -2, v2, pro, plus, new.
-  
-  Previously generated projects (DO NOT repeat or resemble):
-  ${previousList}
-  
-  DIVERSITY RULES (MANDATORY):
-  Pick EXACTLY ONE domain from below that is DIFFERENT from previous projects:
-  - Healthcare
-  - FinTech
-  - EdTech
-  - DevOps
-  - Cybersecurity
-  - Gaming
-  - E-commerce
-  - Logistics
-  - HR / Recruitment
-  - LegalTech
-  - Real Estate
-  - IoT
-  - Social Media
-  - Marketing Automation
-  - Customer Support
-  - Analytics / BI
-  
-  CONCEPT MUTATION RULE:
-  The core problem, target user, and primary workflow MUST be different from any previous project.
-  
-  ${state.projectName ? `
-  SPECIFIC PROJECT REQUEST:
-  User wants project name: "${state.projectName}"
-  You MUST respect the name but still create a UNIQUE concept.
-  ` : `
-  No specific project name. You must invent a fresh, original project.
-  `}
-  
-  Constraints:
-  - Complexity: ${state.complexity}
-  - Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"}
-  
-  ${state.description ? `
-  USER DESCRIPTION:
-  "${state.description}"
-  Incorporate it but add unique twists and features.
-  ` : ""}
-  
-  NAMING RULE:
-  - If the name feels similar to a past project, CHANGE IT.
-  - Do NOT append numbers or minor variations.
-  
-  Return ONLY valid JSON in this exact format:
-  {
-    "title": "Project Name",
-    "type": "Web App | CLI Tool | API | Library | Mobile App | Data Processing | Automation Script",
-    "complexity": "Beginner | Intermediate | Advanced",
-    "techStack": ["technology1", "technology2"],
-    "features": ["feature1", "feature2", "feature3"],
-    "timeline": "estimated duration",
-    "description": "Brief project description",
-    "targetAudience": "Who would use this project"
+// Domain rotation to ensure different project types
+const DOMAIN_ROTATION = [
+  { domain: "FinTech", examples: ["BudgetTracker", "ExpenseManager", "InvoiceGenerator", "PaymentPortal"] },
+  { domain: "E-commerce", examples: ["ProductCatalog", "OrderManager", "InventoryHub", "ShopifyClone"] },
+  { domain: "DevOps", examples: ["DeployPipeline", "LogAnalyzer", "ServerMonitor", "ConfigManager"] },
+  { domain: "EdTech", examples: ["QuizPlatform", "CourseBuilder", "StudyTracker", "LearningHub"] },
+  { domain: "Logistics", examples: ["ShipmentTracker", "RouteOptimizer", "WarehouseManager", "DeliveryApp"] },
+  { domain: "HR / Recruitment", examples: ["ApplicantTracker", "OnboardingPortal", "TimeSheetManager", "TalentFinder"] },
+  { domain: "LegalTech", examples: ["ContractManager", "CaseTracker", "DocumentReview", "ComplianceChecker"] },
+  { domain: "Real Estate", examples: ["PropertyListing", "RentalManager", "TourScheduler", "LeaseTracker"] },
+  { domain: "Marketing Automation", examples: ["EmailCampaign", "LeadScorer", "SocialScheduler", "AnalyticsDash"] },
+  { domain: "Customer Support", examples: ["TicketSystem", "ChatbotBuilder", "KnowledgeBase", "FeedbackCollector"] },
+  { domain: "Analytics / BI", examples: ["DataVisualizer", "ReportGenerator", "MetricsDashboard", "TrendAnalyzer"] },
+  { domain: "IoT", examples: ["SensorDashboard", "DeviceManager", "DataCollector", "AutomationHub"] },
+  { domain: "Gaming", examples: ["LeaderboardAPI", "PlayerStats", "GameServer", "AchievementTracker"] },
+  { domain: "Social Media", examples: ["ContentScheduler", "EngagementTracker", "ProfileManager", "FeedAggregator"] },
+  { domain: "Cybersecurity", examples: ["VulnerabilityScanner", "LogMonitor", "AccessControl", "ThreatDetector"] }
+];
+
+// Check if a project name is too similar to previous ones
+function isSimilarProject(newTitle, previousProjects) {
+  const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const newNormalized = normalize(newTitle);
+
+  for (const prev of previousProjects) {
+    // Extract just the project name (before parentheses with tech stack)
+    const prevName = prev.split('(')[0].trim();
+    const prevNormalized = normalize(prevName);
+
+    // Check for exact match or very similar names
+    if (prevNormalized === newNormalized) {
+      return true;
+    }
+
+    // Check if one is substring of another (e.g., "HealthSync" and "HealthSyncPro")
+    if (prevNormalized.includes(newNormalized) || newNormalized.includes(prevNormalized)) {
+      return true;
+    }
   }
-  `;
-  
-      const response = await model.invoke([["human", prompt]]);
-      let cleaned = response.content.replace(/```json|```/g, "").trim();
-  
-      let projectSpec;
+
+  return false;
+}
+
+export const generateIdea = async (state) => {
+    const MAX_RETRIES = 5;
+    let attempt = 0;
+
+    while (attempt < MAX_RETRIES) {
       try {
-        projectSpec = JSON.parse(cleaned);
-  
-        // HARD SAFETY: remove numeric suffixes or versions
-        if (projectSpec.title) {
-          projectSpec.title = projectSpec.title
-            .replace(/\s*-\s*\d+$/i, "")
-            .replace(/\s*v\d+$/i, "")
-            .replace(/\s*(pro|plus|new)$/i, "")
-            .trim();
+        validateState(state, ["complexity"]);
+
+        const model = chatLLM({
+          json: true,
+          temperature: 0.95, // Higher temperature for more creativity
+          top_p: 0.95
+        });
+
+        const previousProjects = state.previousProjects || [];
+        const previousList = previousProjects.length
+          ? previousProjects.map(p => `- ${p}`).join("\n")
+          : "- None";
+
+        // Select domain based on number of previous projects (rotate through domains)
+        const domainIndex = previousProjects.length % DOMAIN_ROTATION.length;
+        const forcedDomain = DOMAIN_ROTATION[domainIndex];
+
+        // Generate unique seed
+        const techStack = state.techConstraints || [];
+        const techStackSeed = techStack.join("-").toLowerCase();
+        const randomSeed = Date.now().toString(36).slice(-6);
+        const attemptSeed = attempt > 0 ? `-retry${attempt}` : '';
+        const uniquenessSeed = `${techStackSeed}-${randomSeed}${attemptSeed}`;
+
+        console.log(`🎯 Attempt ${attempt + 1}: Forcing domain "${forcedDomain.domain}" with seed ${uniquenessSeed}`);
+
+        const prompt = `
+You are a senior product architect and startup idea generator.
+
+⚠️ CRITICAL ENFORCEMENT RULES ⚠️
+1. You MUST generate a project in the "${forcedDomain.domain}" domain
+2. Your project MUST be COMPLETELY DIFFERENT from ALL previous projects
+3. DO NOT use these names or anything similar: ${previousProjects.map(p => p.split('(')[0].trim()).join(', ') || 'None yet'}
+4. DO NOT add numeric suffixes (-1, -2, v2, pro, plus, max, new)
+5. If you're on retry attempt ${attempt + 1}, be MORE creative than before
+
+Previously generated projects (BANNED - DO NOT GENERATE ANYTHING SIMILAR):
+${previousList}
+
+🎯 MANDATORY DOMAIN: ${forcedDomain.domain}
+
+You MUST create a project in the ${forcedDomain.domain} domain. Here are example project types (for inspiration only - create something DIFFERENT):
+${forcedDomain.examples.map(ex => `- ${ex}`).join('\n')}
+
+UNIQUENESS SEED: ${uniquenessSeed}
+This is a unique identifier for THIS generation. Use it to create something truly novel.
+
+${state.projectName ? `
+SPECIFIC PROJECT REQUEST:
+User wants a project involving: "${state.projectName}"
+You MUST create a unique ${forcedDomain.domain} project that incorporates this concept.
+` : `
+CREATE A FRESH, ORIGINAL ${forcedDomain.domain} PROJECT.
+Think about real problems in ${forcedDomain.domain} that need solving.
+`}
+
+Technical Constraints:
+- Complexity: ${state.complexity}
+- Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"}
+- The tech stack is just tools - the PROJECT IDEA must be unique
+
+${state.description ? `
+User Description: "${state.description}"
+Interpret this in the context of ${forcedDomain.domain} domain.
+` : ""}
+
+PROJECT NAMING REQUIREMENTS:
+1. Must be creative and unique
+2. Must reflect the ${forcedDomain.domain} domain
+3. Must NOT resemble any previous project names
+4. Must be a single, clear name (no suffixes or versions)
+5. Example good names: "ProcureFlow", "VendorSync", "AuditTrail", "ClaimStream"
+
+BANNED NAME PATTERNS:
+❌ HealthSync, HealthSync-1, HealthSyncPro, HealthSyncPlus
+❌ TaskManager, TaskManager-2, TaskManagerPro
+❌ Any name that already appears in the previous projects list
+
+Return ONLY valid JSON:
+{
+  "title": "UniqueProjectName",
+  "type": "Web App | CLI Tool | API | Library | Mobile App | Data Processing | Automation Script",
+  "complexity": "Beginner | Intermediate | Advanced",
+  "techStack": ["technology1", "technology2"],
+  "features": ["feature1", "feature2", "feature3"],
+  "timeline": "estimated duration",
+  "description": "Brief description focusing on ${forcedDomain.domain} domain",
+  "targetAudience": "Specific audience in ${forcedDomain.domain} sector"
+}
+`;
+
+        const response = await model.invoke([["human", prompt]]);
+        let cleaned = response.content.replace(/```json|```/g, "").trim();
+
+        let projectSpec;
+        try {
+          projectSpec = JSON.parse(cleaned);
+
+          // HARD SAFETY: remove numeric suffixes or versions
+          if (projectSpec.title) {
+            projectSpec.title = projectSpec.title
+              .replace(/\s*-\s*\d+$/i, "")
+              .replace(/\s*v\d+$/i, "")
+              .replace(/\s*(pro|plus|new|max|premier|ultimate)$/i, "")
+              .trim();
+          }
+
+          // VALIDATION: Check if project is too similar to previous ones
+          if (isSimilarProject(projectSpec.title, previousProjects)) {
+            console.log(`⚠️ Generated project "${projectSpec.title}" is too similar to previous projects. Retrying...`);
+            attempt++;
+
+            if (attempt >= MAX_RETRIES) {
+              // Generate a completely random name as last resort
+              const randomNames = [
+                "ProcureFlow", "VendorSync", "AuditTrail", "ClaimStream",
+                "FleetCommand", "CargoHub", "RouteWise", "DispatchPro",
+                "TalentBridge", "OnboardFlow", "TimeKeeper", "ShiftMaster",
+                "DealFlow", "LeaseWise", "PropertyVault", "TenantHub"
+              ];
+              const randomIndex = Math.floor(Math.random() * randomNames.length);
+              projectSpec.title = `${randomNames[randomIndex]}${Date.now().toString(36).slice(-4)}`;
+              console.log(`🎲 Using fallback name: ${projectSpec.title}`);
+            } else {
+              // Wait a bit before retry to get different timestamp
+              await new Promise(resolve => setTimeout(resolve, 100));
+              continue;
+            }
+          }
+
+          cleaned = JSON.stringify(projectSpec, null, 2);
+
+          console.log(`✅ Generated unique project: ${projectSpec.title} in ${forcedDomain.domain} domain`);
+
+        } catch (err) {
+          console.error("❌ JSON Parse Error:", response.content);
+          throw new Error("Invalid JSON response from model");
         }
-  
-        cleaned = JSON.stringify(projectSpec, null, 2);
-      } catch (err) {
-        console.error("❌ JSON Parse Error:", response.content);
-        throw new Error("Invalid JSON response from model");
+
+        return {
+          ...state,
+          projectSpec: cleaned,
+          previousProjects: [...previousProjects, projectSpec.title]
+        };
+
+      } catch (error) {
+        console.error(`❌ generateIdea error on attempt ${attempt + 1}:`, error);
+        attempt++;
+
+        if (attempt >= MAX_RETRIES) {
+          // Fallback with truly unique name
+          const fallbackName = `SystemTool${Date.now().toString(36)}`;
+          return {
+            ...state,
+            projectSpec: JSON.stringify({
+              title: fallbackName,
+              type: "Web App",
+              complexity: state.complexity,
+              techStack: state.techConstraints || ["Node.js"],
+              features: ["Core feature", "Secondary feature"],
+              timeline: "2 weeks",
+              description: "Fallback unique project due to generation error",
+              targetAudience: "Developers"
+            })
+          };
+        }
       }
-  
-      return {
-        ...state,
-        projectSpec: cleaned,
-        previousProjects: [...previousProjects, projectSpec.title]
-      };
-    } catch (error) {
-      console.error("❌ generateIdea error:", error);
-  
-      return {
-        ...state,
-        projectSpec: JSON.stringify({
-          title: "Unique System Tool",
-          type: "Web App",
-          complexity: state.complexity,
-          techStack: state.techConstraints || ["Node.js"],
-          features: ["Core feature", "Secondary feature"],
-          timeline: "2 weeks",
-          description: "Fallback unique project due to generation error",
-          targetAudience: "Developers"
-        })
-      };
     }
   };
   

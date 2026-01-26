@@ -1,5 +1,7 @@
 import { BufferMemory } from "langchain/memory";
 import { ConversationChain } from "langchain/chains";
+import fs from "fs/promises";
+import path from "path";
 
 class MemoryService {
     constructor () {
@@ -22,6 +24,9 @@ class MemoryService {
             lastUpdated: null,
             initialProjectParams: null // Store original project parameters for auto-restart
         };
+
+        // Persistent storage file for project names (survives memory clears)
+        this.projectNamesFile = path.join(process.cwd(), '.git-agent-projects.json');
     }
 
     // Save context about current project state
@@ -507,6 +512,89 @@ class MemoryService {
         }
 
         return this.projectState;
+    }
+
+    // Save project name with tech stack for uniqueness tracking (PERSISTENT)
+    async saveProjectName(projectName, techStack = []) {
+        try {
+            // Read existing projects
+            let projects = [];
+            try {
+                const data = await fs.readFile(this.projectNamesFile, 'utf8');
+                projects = JSON.parse(data);
+            } catch (readError) {
+                // File doesn't exist yet, start with empty array
+                console.log("📝 Creating new project names file");
+            }
+
+            // Add new project with timestamp
+            const newEntry = {
+                name: projectName,
+                techStack: techStack,
+                timestamp: new Date().toISOString()
+            };
+
+            // Check if this exact project already exists
+            const exists = projects.some(p =>
+                p.name.toLowerCase() === projectName.toLowerCase() &&
+                JSON.stringify(p.techStack?.sort()) === JSON.stringify(techStack?.sort())
+            );
+
+            if (!exists) {
+                projects.push(newEntry);
+
+                // Write back to file
+                await fs.writeFile(
+                    this.projectNamesFile,
+                    JSON.stringify(projects, null, 2),
+                    'utf8'
+                );
+
+                console.log(`✅ Project name saved persistently: ${projectName} with tech stack: ${techStack.join(", ")}`);
+            } else {
+                console.log(`ℹ️ Project already exists in history: ${projectName}`);
+            }
+        } catch (error) {
+            console.error("❌ Error saving project name:", error);
+        }
+    }
+
+    // Get all previously generated project names (PERSISTENT)
+    async getAllProjectNames() {
+        try {
+            const data = await fs.readFile(this.projectNamesFile, 'utf8');
+            const projects = JSON.parse(data);
+
+            // Format projects for display (include tech stack for better context)
+            const formattedProjects = projects.map(p => {
+                if (p.techStack && p.techStack.length > 0) {
+                    return `${p.name} (${p.techStack.join(", ")})`;
+                }
+                return p.name;
+            });
+
+            console.log(`📋 Found ${formattedProjects.length} previously generated projects from persistent storage`);
+            return formattedProjects;
+        } catch (error) {
+            if (error.code === 'ENOENT') {
+                console.log("📋 No previous projects found (first run)");
+                return [];
+            }
+            console.error("❌ Error retrieving project names from persistent storage:", error);
+            return [];
+        }
+    }
+
+    // Clear project names history (optional, for complete reset)
+    async clearProjectNamesHistory() {
+        try {
+            await fs.unlink(this.projectNamesFile);
+            console.log("🗑️ Project names history cleared");
+        } catch (error) {
+            if (error.code !== 'ENOENT') {
+                console.error("❌ Error clearing project names history:", error);
+            }
+        }
     }
 }
 

@@ -28,13 +28,14 @@ const gitAgent = async (req, res) => {
     console.log("🛑 Stopping cron...");
     try { cronScheduler.stop(); } catch {}
 
+    // Load previous project names BEFORE clearing memory (they're stored persistently in a file)
+    const previousProjects = await memoryService.getAllProjectNames?.() || [];
+    console.log(`📋 Loaded ${previousProjects.length} previous projects for uniqueness checking`);
+
     console.log("🧹 Clearing ALL memory...");
     await memoryService.clearMemory(false);
     await memoryService.clearRepositoryInfo();
     await memoryService.clearInitialProjectParams();
-
-    // Load previous project names to avoid repetition
-    const previousProjects = await memoryService.getAllProjectNames?.() || [];
 
     const modifiedInput = {
       ...input,
@@ -88,7 +89,9 @@ const gitAgent = async (req, res) => {
         });
 
         if (result?.projectSpec?.title) {
-          await memoryService.saveProjectName?.(result.projectSpec.title);
+          // Save project name with tech stack for better uniqueness tracking
+          const techStack = result.projectSpec?.techStack || modifiedInput.techConstraints;
+          await memoryService.saveProjectName?.(result.projectSpec.title, techStack);
         }
 
         initializationResults.push({
