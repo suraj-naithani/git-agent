@@ -1,7 +1,7 @@
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { z } from "zod";
 import { Octokit } from "@octokit/rest";
-import { generateIdea, manageRepository, planProject } from "./agents.js";
+import { generateIdea, manageRepository, planProject, ProjectNameCollisionError } from "./agents.js";
 import { developNextTask } from "./developmentAgent.js";
 import memoryService from "../services/memoryService.js";
 import notificationService from "../services/notificationService.js";
@@ -21,7 +21,8 @@ const stateSchema = z.object({
     learningMetrics: z.any().nullable().describe("Learning and optimization metrics"),
     currentTask: z.string().nullable().describe("Current task being processed"),
     remainingTasks: z.number().nullable().describe("Number of remaining tasks"),
-    githubToken: z.string().nullable().optional().describe("GitHub token used for this run (supports multi-account)")
+    githubToken: z.string().nullable().optional().describe("GitHub token used for this run (supports multi-account)"),
+    previousProjects: z.array(z.string()).optional().describe("Previously generated project names (with optional tech stack) for uniqueness")
 });
 
 // Create initial setup graph (idea → plan → repo setup)
@@ -46,75 +47,98 @@ class AgentOrchestrator {
 
     // Run initial cycle: idea → plan → repo setup
     async runInitialCycle(input) {
-        try {
-            console.log("🚀 Starting initial project setup cycle...");
+        const maxCollisionRetries = 2;
+        let currentInput = { ...input, previousProjects: input.previousProjects ?? [] };
 
-            const initialState = {
-                projectName: input.projectName ?? null,
-                description: input.description || null,
-                complexity: input.complexity || "beginner",
-                techConstraints: input.techConstraints || ["Node.js"],
-                projectSpec: null,
-                plan: null,
-                repo: null,
-                commits: null,
-                qualityReport: null,
-                documentation: null,
-                learningMetrics: null,
-                currentTask: null,
-                remainingTasks: null,
-                githubToken: input.githubToken ?? null
-            };
-
-            const result = await this.compiledInitialGraph.invoke(initialState);
-
-            // Save project plan to memory for future development cycles
-            if (result.plan) {
-                try {
-                    const plan = JSON.parse(result.plan);
-                    await memoryService.saveProjectPlan(plan, result.projectSpec);
-                    console.log(`📋 Saved ${plan.tasks?.length || 0} tasks to memory`);
-                } catch (error) {
-                    console.error("Error saving plan to memory:", error);
-                }
-            }
-
-            // Save repository information to memory (only for single-account mode)
-            // For multi-account mode, each account has its own repo, so we don't overwrite memory
-            if (result.repo && !input.githubToken) {
-                try {
-                    await memoryService.saveRepositoryInfo(result.repo);
-                    console.log(`📁 Saved repository info: ${result.repo.name}`);
-                } catch (error) {
-                    console.error("Error saving repository info to memory:", error);
-                }
-            } else if (result.repo && input.githubToken) {
-                // Multi-account mode: log but don't save to shared memory
-                const github = new Octokit({ auth: input.githubToken });
-                const { data: user } = await github.users.getAuthenticated();
-                console.log(`📁 [Account: ${user.login}] Repository: ${result.repo.name} (not saved to shared memory)`);
-            }
-
-            // Send project start notification
+        for (let collisionAttempt = 0; collisionAttempt < maxCollisionRetries; collisionAttempt++) {
             try {
-                await notificationService.sendProjectStartNotification({
-                    projectName: input.projectName || "AI Generated Project",
-                    complexity: input.complexity || "beginner",
-                    techStack: input.techConstraints || ["Node.js"],
-                    repo: result.repo
-                });
-            } catch (notifyError) {
-                console.warn("⚠️ Failed to send project start notification:", notifyError.message);
+                console.log("🚀 Starting initial project setup cycle...");
+
+                const initialState = {
+                    projectName: currentInput.projectName ?? null,
+                    description: currentInput.description || null,
+                    complexity: currentInput.complexity || "beginner",
+                    techConstraints: currentInput.techConstraints || ["Node.js"],
+                    projectSpec: null,
+                    plan: null,
+                    repo: null,
+                    commits: null,
+                    qualityReport: null,
+                    documentation: null,
+                    learningMetrics: null,
+                    currentTask: null,
+                    remainingTasks: null,
+                    githubToken: currentInput.githubToken ?? null,
+                    previousProjects: currentInput.previousProjects
+                };
+
+                const result = await this.compiledInitialGraph.invoke(initialState);
+
+                // Save project plan to memory for future development cycles
+                if (result.plan) {
+                    try {
+                        const plan = JSON.parse(result.plan);
+                        await memoryService.saveProjectPlan(plan, result.projectSpec);
+                        console.log(`📋 Saved ${plan.tasks?.length || 0} tasks to memory`);
+                    } catch (error) {
+                        console.error("Error saving plan to memory:", error);
+                    }
+                }
+
+                // Save repository information to memory (only for single-account mode)
+                // For multi-account mode, each account has its own repo, so we don't overwrite memory
+                if (result.repo && !input.githubToken) {
+                    try {
+                        await memoryService.saveRepositoryInfo(result.repo);
+                        console.log(`📁 Saved repository info: ${result.repo.name}`);
+                    } catch (error) {
+                        console.error("Error saving repository info to memory:", error);
+                    }
+                } else if (result.repo && input.githubToken) {
+                    // Multi-account mode: log but don't save to shared memory
+                    const github = new Octokit({ auth: input.githubToken });
+                    const { data: user } = await github.users.getAuthenticated();
+                    console.log(`📁 [Account: ${user.login}] Repository: ${result.repo.name} (not saved to shared memory)`);
+                }
+
+                // Send project start notification (use generated project name when available)
+                try {
+                    let displayProjectName = input.projectName || "AI Generated Project";
+                    if (result.projectSpec) {
+                        try {
+                            const spec = typeof result.projectSpec === "string" ? JSON.parse(result.projectSpec) : result.projectSpec;
+                            if (spec?.title) displayProjectName = spec.title;
+                        } catch (_) {}
+                    }
+                    await notificationService.sendProjectStartNotification({
+                        projectName: displayProjectName,
+                        complexity: input.complexity || "beginner",
+                        techStack: input.techConstraints || ["Node.js"],
+                        repo: result.repo
+                    });
+                } catch (notifyError) {
+                    console.warn("⚠️ Failed to send project start notification:", notifyError.message);
+                }
+
+                // Mark initialization as complete
+                await memoryService.saveInitializationStatus("done");
+                console.log("✅ Initial project setup completed and saved to memory");
+
+                return result;
+            } catch (error) {
+                if (error instanceof ProjectNameCollisionError && collisionAttempt < maxCollisionRetries - 1) {
+                    const title = error.projectTitle || "unknown";
+                    const techStack = currentInput.techConstraints?.length ? ` (${currentInput.techConstraints.join(", ")})` : "";
+                    currentInput = {
+                        ...currentInput,
+                        previousProjects: [...(currentInput.previousProjects || []), `${title}${techStack}`]
+                    };
+                    console.log(`🔄 Repo name collision ("${title}"), retrying with new project idea...`);
+                    continue;
+                }
+                console.error('Initial cycle error:', error);
+                throw error;
             }
-
-            // Mark initialization as complete
-            await memoryService.saveInitializationStatus("done");
-            console.log("✅ Initial project setup completed and saved to memory");
-
-            return result;
-        } catch (error) {
-            console.error('Initial cycle error:', error);
-            throw error;
         }
     }
 

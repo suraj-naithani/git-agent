@@ -4,6 +4,15 @@ import { WebClient } from "@slack/web-api";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { chatLLM } from "../utils/model.js";
 
+/** Thrown when repo name would need a numeric suffix (e.g. wealthbridge-1) so caller can retry with a new project idea */
+export class ProjectNameCollisionError extends Error {
+    constructor(message, projectTitle) {
+        super(message);
+        this.name = "ProjectNameCollisionError";
+        this.projectTitle = projectTitle;
+    }
+}
+
 // Enhanced error logging utility
 const logError = (agentName, error, context = {}) => {
     console.error(`[${agentName}] Error:`, {
@@ -143,6 +152,13 @@ const DOMAIN_ROTATION = [
   { domain: "Cybersecurity", examples: ["VulnerabilityScanner", "LogMonitor", "AccessControl", "ThreatDetector"] }
 ];
 
+// Deterministic domain index from tech stack + complexity so different stacks get different projects
+function getDomainIndexForTechStack(techStackSeed, complexity) {
+  const key = `${(techStackSeed || '').toLowerCase()}-${(complexity || '').toLowerCase()}`;
+  const hash = [...key].reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return Math.abs(hash) % DOMAIN_ROTATION.length;
+}
+
 // Check if a project name is too similar to previous ones
 function isSimilarProject(newTitle, previousProjects) {
   const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -186,23 +202,31 @@ export const generateIdea = async (state) => {
           ? previousProjects.map(p => `- ${p}`).join("\n")
           : "- None";
 
-        // Select domain based on number of previous projects (rotate through domains)
-        const domainIndex = previousProjects.length % DOMAIN_ROTATION.length;
-        const forcedDomain = DOMAIN_ROTATION[domainIndex];
-
-        // Generate unique seed
         const techStack = state.techConstraints || [];
         const techStackSeed = techStack.join("-").toLowerCase();
+        const complexity = state.complexity || "intermediate";
+
+        // Select domain from tech stack + complexity (+ history offset so same stack run again gets variety)
+        const baseIndex = getDomainIndexForTechStack(techStackSeed, complexity);
+        const domainIndex = (baseIndex + previousProjects.length) % DOMAIN_ROTATION.length;
+        const forcedDomain = DOMAIN_ROTATION[domainIndex];
+
         const randomSeed = Date.now().toString(36).slice(-6);
         const attemptSeed = attempt > 0 ? `-retry${attempt}` : '';
-        const uniquenessSeed = `${techStackSeed}-${randomSeed}${attemptSeed}`;
+        const uniquenessSeed = `${techStackSeed}-${complexity}-${randomSeed}${attemptSeed}`;
 
-        console.log(`🎯 Attempt ${attempt + 1}: Forcing domain "${forcedDomain.domain}" with seed ${uniquenessSeed}`);
+        console.log(`🎯 Attempt ${attempt + 1}: Tech stack + complexity → domain "${forcedDomain.domain}" (seed: ${uniquenessSeed})`);
 
         const prompt = `
 You are a senior product architect and startup idea generator.
 
-⚠️ CRITICAL ENFORCEMENT RULES ⚠️
+⚠️ CRITICAL: UNIQUE PROJECT PER TECH STACK + COMPLEXITY ⚠️
+Each combination of tech stack and complexity MUST produce a DIFFERENT project name and concept.
+- Different tech stack → different project idea and name (e.g. do NOT reuse "WealthBridge" for another stack).
+- Different complexity → different scope and naming (beginner vs advanced = different projects).
+Use the exact tech stack and complexity below as the PRIMARY driver for the project idea and name.
+
+⚠️ OTHER RULES ⚠️
 1. You MUST generate a project in the "${forcedDomain.domain}" domain
 2. Your project MUST be COMPLETELY DIFFERENT from ALL previous projects
 3. DO NOT use these names or anything similar: ${previousProjects.map(p => p.split('(')[0].trim()).join(', ') || 'None yet'}
@@ -217,38 +241,37 @@ ${previousList}
 You MUST create a project in the ${forcedDomain.domain} domain. Here are example project types (for inspiration only - create something DIFFERENT):
 ${forcedDomain.examples.map(ex => `- ${ex}`).join('\n')}
 
-UNIQUENESS SEED: ${uniquenessSeed}
-This is a unique identifier for THIS generation. Use it to create something truly novel.
+UNIQUENESS SEED (tie your idea to this): ${uniquenessSeed}
+This seed is derived from tech stack + complexity. Use it to create a project that is distinctly suited to THIS stack and level.
 
 ${state.projectName ? `
 SPECIFIC PROJECT REQUEST:
 User wants a project involving: "${state.projectName}"
-You MUST create a unique ${forcedDomain.domain} project that incorporates this concept.
+You MUST create a unique ${forcedDomain.domain} project that incorporates this concept and fits THIS tech stack and complexity.
 ` : `
 CREATE A FRESH, ORIGINAL ${forcedDomain.domain} PROJECT.
-Think about real problems in ${forcedDomain.domain} that need solving.
+The project MUST be uniquely suited to THIS tech stack and THIS complexity level. Think about what this stack is good for.
 `}
 
-Technical Constraints:
-- Complexity: ${state.complexity}
-- Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"}
-- The tech stack is just tools - the PROJECT IDEA must be unique
+Technical Constraints (DRIVE your idea and name from these):
+- Complexity: ${state.complexity} — scope and features must match this level
+- Tech Stack: ${state.techConstraints?.join(", ") || "No constraints"} — project type and name must fit this stack (e.g. Node/API vs Python/Data → different projects)
 
 ${state.description ? `
 User Description: "${state.description}"
-Interpret this in the context of ${forcedDomain.domain} domain.
+Interpret this in the context of ${forcedDomain.domain} and the tech stack above.
 ` : ""}
 
 PROJECT NAMING REQUIREMENTS:
-1. Must be creative and unique
+1. Must be creative and unique FOR THIS tech stack and complexity (different stack = different name)
 2. Must reflect the ${forcedDomain.domain} domain
 3. Must NOT resemble any previous project names
 4. Must be a single, clear name (no suffixes or versions)
 5. Example good names: "ProcureFlow", "VendorSync", "AuditTrail", "ClaimStream"
 
 BANNED NAME PATTERNS:
-❌ HealthSync, HealthSync-1, HealthSyncPro, HealthSyncPlus
-❌ TaskManager, TaskManager-2, TaskManagerPro
+❌ Reusing the same name (e.g. WealthBridge) for a different tech stack or complexity
+❌ HealthSync, HealthSync-1, HealthSyncPro, TaskManager-2, TaskManagerPro
 ❌ Any name that already appears in the previous projects list
 
 Return ONLY valid JSON:
@@ -477,34 +500,19 @@ export const manageRepository = async (state) => {
         const { data: user } = await github.users.getAuthenticated();
         const owner = user.login;
 
-        // Try to create repository with simple name, append number if it exists
+        // Try to create repository with simple name; if base name exists, signal collision so a new idea can be generated instead of using -1
         let repo;
         let finalRepoName = repoName;
-        let attempt = 0;
-        const maxAttempts = 10;
-        
-        while (attempt < maxAttempts) {
-            try {
-                // Check if repository already exists
-                try {
-                    await github.repos.get({ owner, repo: finalRepoName });
-                    // Repository exists, try with number suffix
-                    attempt++;
-                    finalRepoName = `${repoName}-${attempt}`;
-                    console.log(`⚠️ Repository "${repoName}" exists, trying "${finalRepoName}"...`);
-                    continue;
-                } catch (checkError) {
-                    if (checkError.status === 404) {
-                        // Repository doesn't exist, we can create it
-                        break;
-                    } else {
-                        throw checkError;
-                    }
-                }
-            } catch (checkError) {
-                // If check fails for other reason, try creating anyway
-                break;
-            }
+        try {
+            await github.repos.get({ owner, repo: finalRepoName });
+            // Base repo name already exists - throw so orchestrator can retry with a fresh project idea instead of creating wealthbridge-1
+            const projectTitle = projectSpec.title || repoName;
+            console.log(`⚠️ Repository "${repoName}" already exists. Requesting new project idea instead of creating "${repoName}-1".`);
+            throw new ProjectNameCollisionError(`Repository "${repoName}" already exists. Generate a different project name.`, projectTitle);
+        } catch (checkError) {
+            if (checkError instanceof ProjectNameCollisionError) throw checkError;
+            if (checkError.status !== 404) throw checkError;
+            // 404 = repo doesn't exist, we can create it
         }
 
         // Create the repository
